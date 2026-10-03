@@ -94,7 +94,7 @@ final class Tracker: ObservableObject {
         lastPlaybackTime = pos
 
         let title = item.title ?? "Unknown"
-        let artist = item.artist ?? "Unknown artist"
+        let artist = item.displayArtist
         store.addTime(elapsed, to: id, title: title, artist: artist)
         progress += elapsed
 
@@ -155,6 +155,12 @@ final class Tracker: ObservableObject {
         play(queue: [item], startAt: item)
     }
 
+    /// Shuffles every downloaded song by `artist`, including ones whose artist comes from the title.
+    func play(artist: String) {
+        let items = (MPMediaQuery.songs().items ?? []).filter { $0.displayArtist == artist }
+        play(queue: items, shuffle: true)
+    }
+
     /// Replaces the queue with `items` and starts at `startAt` (or the first song, or a random one when shuffling).
     func play(queue items: [MPMediaItem], startAt start: MPMediaItem? = nil, shuffle: Bool = false) {
         let playable = items.filter { !$0.isCloudItem }
@@ -204,7 +210,7 @@ final class Tracker: ObservableObject {
             store.addPlays(
                 missed, to: id,
                 title: item.title ?? "Unknown",
-                artist: item.artist ?? "Unknown artist",
+                artist: item.displayArtist,
                 estimatedSeconds: Double(missed) * item.playbackDuration,
                 on: item.lastPlayedDate
             )
@@ -216,4 +222,9 @@ final class Tracker: ObservableObject {
             s.baselined = true
         }
     }
+}
+
+extension MPMediaItem {
+    /// Artist to show and record; falls back to the "Artist - Song" title prefix.
+    var displayArtist: String { ArtistName.resolve(artist, title: title) }
 }

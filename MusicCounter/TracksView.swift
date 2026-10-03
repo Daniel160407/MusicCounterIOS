@@ -7,7 +7,7 @@ struct TracksView: View {
     @State private var showAllArtists = false
 
     private var tracks: [TrackStat] {
-        let all = Array(store.stats.tracks.values)
+        let all = store.allTracks
         return sortByPlays
             ? all.sorted { ($0.plays, $0.seconds) > ($1.plays, $1.seconds) }
             : all.sorted { $0.seconds > $1.seconds }
@@ -22,8 +22,8 @@ struct TracksView: View {
                     artistsCard
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 24)
             }
+            .pageBottomMargin()
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Tracks")
         }

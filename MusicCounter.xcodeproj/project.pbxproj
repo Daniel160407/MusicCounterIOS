@@ -8,44 +8,76 @@
 
 /* Begin PBXBuildFile section */
 		1427748E62F5BF0C31A76655 /* MusicCounterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EBFE51A9EF8E76327CECAC9 /* MusicCounterApp.swift */; };
+		1C979DB22D365CD3C40ECD36 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = DDDB07DEE1AD000643BFDF05 /* FirebaseAuth */; };
+		28E35497BB6CCBE8FF84AE8A /* SyncFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A8B89A5F5C26FFC2400DD7 /* SyncFormat.swift */; };
 		37622060CF39559707D1B1D2 /* TracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 273FB039E7ED95B0FF216B0A /* TracksView.swift */; };
 		3789E5DEA4FEAC13D809F4AB /* Tracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC6349CEF6760FCB50D2C628 /* Tracker.swift */; };
 		3E401240BFF81C55E2A707AC /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F0679C5470F0682068A00F /* PlayerView.swift */; };
 		4185A71CC3242747D271723A /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000C8C5BC2472A2FF0B8B /* InsightsView.swift */; };
 		48051069C6463D967943D65F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E641B912A608742A693824B /* Models.swift */; };
 		50AC03EBD26C2987BAC37550 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D245A5104C613058C6E06726 /* HomeView.swift */; };
+		54A0B462087674F9FA9FC86D /* AchievementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C87049864305585EE1BA9249 /* AchievementsView.swift */; };
 		54F2577348D06ECC8CDCE766 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 07E6606687EC57E2B3BEC1DD /* Assets.xcassets */; };
+		61D628A74BE76C35639E8405 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 545284273C84807AE86EC504 /* GoogleSignIn */; };
+		6D8B3591ADD11A97C91550CE /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12747C1E14049EDF1406BE2A /* BackgroundRefresh.swift */; };
+		7B8729BDDC16E87D28218FAF /* Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9CF9F666153D5777C0FC7CC /* Sync.swift */; };
 		B6C2400124A290762E1391F6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A5B4BE24C9F2AD4141FF88 /* ContentView.swift */; };
 		BB4697FBD4F85606E297F265 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7E94F69F568291F39EC336 /* LibraryView.swift */; };
+		CBE28B026CEB4D2B266D39A9 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = ACDF66DF83677B86E0AF2277 /* FirebaseFirestore */; };
 		CF1BB6442F3E31210B101C35 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8436A2C33C2AD1BA06AC2BB9 /* HistoryView.swift */; };
+		F33262EE922AA051859FC51F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2706937B2E10F088B39DA086 /* GoogleService-Info.plist */; };
 		F478E295E01F522950FBE474 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA59182560F92712EE8FC7F /* Store.swift */; };
+		F5C96F25A0AEDB4EB2FB00BF /* Achievements.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3B27AB7356ADB1C81E88FF /* Achievements.swift */; };
 		FB8E6413E9C14F763E83EE3E /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15E0CC2FFD3C75013773A97 /* Components.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		07E6606687EC57E2B3BEC1DD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		12747C1E14049EDF1406BE2A /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
+		2706937B2E10F088B39DA086 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		273FB039E7ED95B0FF216B0A /* TracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracksView.swift; sourceTree = "<group>"; };
 		4E641B912A608742A693824B /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		6EBFE51A9EF8E76327CECAC9 /* MusicCounterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicCounterApp.swift; sourceTree = "<group>"; };
 		70A5B4BE24C9F2AD4141FF88 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		82F0679C5470F0682068A00F /* PlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerView.swift; sourceTree = "<group>"; };
 		8436A2C33C2AD1BA06AC2BB9 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		A2A8B89A5F5C26FFC2400DD7 /* SyncFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncFormat.swift; sourceTree = "<group>"; };
 		A91000C8C5BC2472A2FF0B8B /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
 		AC6349CEF6760FCB50D2C628 /* Tracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tracker.swift; sourceTree = "<group>"; };
 		AFA59182560F92712EE8FC7F /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		C87049864305585EE1BA9249 /* AchievementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementsView.swift; sourceTree = "<group>"; };
+		C9CF9F666153D5777C0FC7CC /* Sync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync.swift; sourceTree = "<group>"; };
+		CF3B27AB7356ADB1C81E88FF /* Achievements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Achievements.swift; sourceTree = "<group>"; };
 		D15E0CC2FFD3C75013773A97 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		D245A5104C613058C6E06726 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DD7E94F69F568291F39EC336 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		F5028921C29284E0C9F32A90 /* MusicCounter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicCounter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		CEE00B9783F253B70EB847A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C979DB22D365CD3C40ECD36 /* FirebaseAuth in Frameworks */,
+				CBE28B026CEB4D2B266D39A9 /* FirebaseFirestore in Frameworks */,
+				61D628A74BE76C35639E8405 /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
 		1149D17371CF3EA7A231C9F8 /* MusicCounter */ = {
 			isa = PBXGroup;
 			children = (
+				CF3B27AB7356ADB1C81E88FF /* Achievements.swift */,
+				C87049864305585EE1BA9249 /* AchievementsView.swift */,
 				07E6606687EC57E2B3BEC1DD /* Assets.xcassets */,
+				12747C1E14049EDF1406BE2A /* BackgroundRefresh.swift */,
 				D15E0CC2FFD3C75013773A97 /* Components.swift */,
 				70A5B4BE24C9F2AD4141FF88 /* ContentView.swift */,
+				2706937B2E10F088B39DA086 /* GoogleService-Info.plist */,
 				8436A2C33C2AD1BA06AC2BB9 /* HistoryView.swift */,
 				D245A5104C613058C6E06726 /* HomeView.swift */,
 				A91000C8C5BC2472A2FF0B8B /* InsightsView.swift */,
@@ -54,6 +86,8 @@
 				6EBFE51A9EF8E76327CECAC9 /* MusicCounterApp.swift */,
 				82F0679C5470F0682068A00F /* PlayerView.swift */,
 				AFA59182560F92712EE8FC7F /* Store.swift */,
+				C9CF9F666153D5777C0FC7CC /* Sync.swift */,
+				A2A8B89A5F5C26FFC2400DD7 /* SyncFormat.swift */,
 				AC6349CEF6760FCB50D2C628 /* Tracker.swift */,
 				273FB039E7ED95B0FF216B0A /* TracksView.swift */,
 			);
@@ -85,6 +119,7 @@
 			buildPhases = (
 				5DE9DFE88E01C865F466D519 /* Sources */,
 				56BAD24B379CAE4E0BFEADAB /* Resources */,
+				CEE00B9783F253B70EB847A1 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -92,6 +127,9 @@
 			);
 			name = MusicCounter;
 			packageProductDependencies = (
+				DDDB07DEE1AD000643BFDF05 /* FirebaseAuth */,
+				ACDF66DF83677B86E0AF2277 /* FirebaseFirestore */,
+				545284273C84807AE86EC504 /* GoogleSignIn */,
 			);
 			productName = MusicCounter;
 			productReference = F5028921C29284E0C9F32A90 /* MusicCounter.app */;
@@ -115,6 +153,10 @@
 			);
 			mainGroup = 4FEC0454A05DCBEC56F18F07;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3DA2EF5FDF60C32840C8043B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				C3F6D0D10FAB75005E3955AA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1E9DBC7DB2CFF09E174AAD6E /* Products */;
 			projectDirPath = "";
@@ -131,6 +173,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				54F2577348D06ECC8CDCE766 /* Assets.xcassets in Resources */,
+				F33262EE922AA051859FC51F /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -141,6 +184,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F5C96F25A0AEDB4EB2FB00BF /* Achievements.swift in Sources */,
+				54A0B462087674F9FA9FC86D /* AchievementsView.swift in Sources */,
+				6D8B3591ADD11A97C91550CE /* BackgroundRefresh.swift in Sources */,
 				FB8E6413E9C14F763E83EE3E /* Components.swift in Sources */,
 				B6C2400124A290762E1391F6 /* ContentView.swift in Sources */,
 				CF1BB6442F3E31210B101C35 /* HistoryView.swift in Sources */,
@@ -151,6 +197,8 @@
 				1427748E62F5BF0C31A76655 /* MusicCounterApp.swift in Sources */,
 				3E401240BFF81C55E2A707AC /* PlayerView.swift in Sources */,
 				F478E295E01F522950FBE474 /* Store.swift in Sources */,
+				7B8729BDDC16E87D28218FAF /* Sync.swift in Sources */,
+				28E35497BB6CCBE8FF84AE8A /* SyncFormat.swift in Sources */,
 				3789E5DEA4FEAC13D809F4AB /* Tracker.swift in Sources */,
 				37622060CF39559707D1B1D2 /* TracksView.swift in Sources */,
 			);
@@ -167,6 +215,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4KM66MVGWX;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_REVERSED_CLIENT_ID = "com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g";
+				INFOPLIST_FILE = MusicCounter/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Music Counter reads your music library to count how much you listen.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -308,6 +358,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4KM66MVGWX;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_REVERSED_CLIENT_ID = "com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g";
+				INFOPLIST_FILE = MusicCounter/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Music Counter reads your music library to count how much you listen.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -344,6 +396,43 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3DA2EF5FDF60C32840C8043B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+		C3F6D0D10FAB75005E3955AA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		545284273C84807AE86EC504 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3F6D0D10FAB75005E3955AA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		ACDF66DF83677B86E0AF2277 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3DA2EF5FDF60C32840C8043B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		DDDB07DEE1AD000643BFDF05 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3DA2EF5FDF60C32840C8043B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 65368329623415B11A18E234 /* Project object */;
 }

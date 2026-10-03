@@ -18,7 +18,7 @@ struct MiniPlayerBar: View {
                     .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title ?? "Unknown").font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(item.artist ?? "Unknown artist").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(item.displayArtist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 Button { haptic(); tracker.togglePlayPause() } label: {
@@ -98,7 +98,7 @@ struct NowPlayingView: View {
     private func content(_ item: MPMediaItem) -> some View {
         let id = String(item.persistentID)
         let title = item.title ?? "Unknown"
-        let artist = item.artist ?? "Unknown artist"
+        let artist = item.displayArtist
 
         return GeometryReader { geo in
             let artSide = min(geo.size.width - 48, geo.size.height * 0.42)

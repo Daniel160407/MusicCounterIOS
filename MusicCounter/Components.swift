@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import MediaPlayer
 
 enum Theme {
@@ -30,6 +31,48 @@ struct Card<Content: View>: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+extension View {
+    /// Colours chart series by service, naming only the services present.
+    func serviceColors(_ sources: [String]) -> some View {
+        let present = Service.all.filter(sources.contains) + Set(sources).subtracting(Service.all).sorted()
+        return chartForegroundStyleScale(domain: present.map(Service.label), range: present.map(Service.color))
+            .chartLegend(present.count > 1 ? .visible : .hidden)
+    }
+}
+
+/// Listening split by service, as in the extension's "By service" list.
+struct ServiceBreakdown: View {
+    let services: [ServiceTotal]
+
+    var body: some View {
+        let total = services.reduce(0) { $0 + $1.seconds }
+        let max = services.first?.seconds ?? 1
+        if services.isEmpty {
+            Text("Nothing recorded yet.").font(.subheadline).foregroundStyle(.secondary)
+        }
+        ForEach(services) { s in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Service.label(s.source)).font(.subheadline.weight(.semibold))
+                    Text("\(Int((s.seconds / Swift.max(total, 1) * 100).rounded()))%")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if s.plays > 0 {
+                        Text("\(s.plays) \(s.plays == 1 ? "play" : "plays")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text(formatDuration(s.seconds)).font(.subheadline.weight(.medium)).monospacedDigit()
+                }
+                GeometryReader { geo in
+                    Capsule().fill(Service.color(s.source))
+                        .frame(width: geo.size.width * CGFloat(max > 0 ? s.seconds / max : 0))
+                }
+                .frame(height: 4)
+            }
+        }
     }
 }
 
@@ -76,6 +119,8 @@ struct EqualizerView: View {
 struct ArtworkView: View {
     let id: String
     var size: CGFloat = 48
+    /// Cover for another device's track, which the media library doesn't have.
+    var remoteURL: URL? = nil
     @State private var image: UIImage?
 
     private static let cache = NSCache<NSString, UIImage>()
@@ -84,14 +129,22 @@ struct ArtworkView: View {
         ZStack {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let remoteURL {
+                AsyncImage(url: remoteURL) { $0.resizable().scaledToFill() } placeholder: { placeholder }
             } else {
-                Theme.gradient.opacity(0.25)
-                Image(systemName: "music.note").foregroundStyle(Theme.accent)
+                placeholder
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
         .task(id: id) { load() }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Theme.gradient.opacity(0.25)
+            Image(systemName: "music.note").foregroundStyle(Theme.accent)
+        }
     }
 
     private func load() {
@@ -112,11 +165,12 @@ struct StarButton: View {
     let id: String
     let title: String
     let artist: String
+    var source: String? = nil
 
     var body: some View {
         let on = store.isFavorite(id)
         Button {
-            store.toggleFavorite(id: id, title: title, artist: artist)
+            store.toggleFavorite(id: id, title: title, artist: artist, source: source)
         } label: {
             Image(systemName: on ? "star.fill" : "star")
                 .foregroundStyle(on ? Color.yellow : Color.secondary)
@@ -128,8 +182,10 @@ struct StarButton: View {
 }
 
 /// A ranked song row: tap the row to play it, tap the star to favorite it.
+/// Another device's track opens on the service it was played on instead.
 struct TrackRow: View {
     @EnvironmentObject var tracker: Tracker
+    @Environment(\.openURL) private var openURL
     let track: TrackStat
     var rank: Int?
     /// 0...1 length of the little bar under the title; nil hides it.
@@ -143,10 +199,12 @@ struct TrackRow: View {
                         .font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
                         .frame(width: 22)
                 }
-                ArtworkView(id: track.id, size: 46)
+                ArtworkView(id: track.id, size: 46,
+                            remoteURL: track.source.flatMap { WebLink.thumbnail(source: $0, key: track.id) })
                 VStack(alignment: .leading, spacing: 4) {
                     Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(track.source.map { "\(track.artist) · \(WebLink.label($0))" } ?? track.artist)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let ratio {
                         GeometryReader { geo in
                             Capsule().fill(Theme.gradient)
@@ -162,9 +220,17 @@ struct TrackRow: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { tracker.play(id: track.id) }
+            .onTapGesture {
+                if let source = track.source {
+                    if let url = WebLink.track(source: source, key: track.id, title: track.title, artist: track.artist) {
+                        openURL(url)
+                    }
+                } else {
+                    tracker.play(id: track.id)
+                }
+            }
 
-            StarButton(id: track.id, title: track.title, artist: track.artist)
+            StarButton(id: track.id, title: track.title, artist: track.artist, source: track.source)
         }
     }
 }

@@ -38,6 +38,7 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .pageBottomMargin()
             .searchable(text: $query, prompt: ["Songs or artists", "Albums or artists", "Playlists"][section])
             .navigationTitle("Library")
             .task(id: tracker.authorized) { load() }
@@ -49,7 +50,7 @@ struct LibraryView: View {
         guard !query.isEmpty else { return songs }
         return songs.filter {
             ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
-            ($0.artist ?? "").localizedCaseInsensitiveContains(query)
+            $0.displayArtist.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -198,32 +199,55 @@ private struct PlaylistCover: View {
 private struct PlaylistDetailView: View {
     @EnvironmentObject var tracker: Tracker
     let playlist: LibraryPlaylist
+    @State private var query = ""
+
+    /// Matches title, artist or album; the playlist order is kept.
+    private var filteredItems: [MPMediaItem] {
+        guard !query.isEmpty else { return playlist.items }
+        return playlist.items.filter {
+            ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
+            $0.displayArtist.localizedCaseInsensitiveContains(query) ||
+            ($0.albumTitle ?? "").localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         let items = playlist.items
+        let list = filteredItems
         List {
-            Section {
-                VStack(spacing: 12) {
-                    PlaylistCover(items: items, size: 200)
-                        .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-                    VStack(spacing: 4) {
-                        Text(playlist.name).font(.title3.bold()).multilineTextAlignment(.center)
-                        Text("\(items.count) songs · \(formatDuration(items.reduce(0) { $0 + $1.playbackDuration }))")
-                            .font(.caption).foregroundStyle(.secondary)
+            if query.isEmpty {
+                Section {
+                    VStack(spacing: 12) {
+                        PlaylistCover(items: items, size: 200)
+                            .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
+                        VStack(spacing: 4) {
+                            Text(playlist.name).font(.title3.bold()).multilineTextAlignment(.center)
+                            Text("\(items.count) songs · \(formatDuration(items.reduce(0) { $0 + $1.playbackDuration }))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        PlayShuffleButtons(items: items)
                     }
-                    PlayShuffleButtons(items: items)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
             }
             Section {
-                ForEach(items, id: \.persistentID) { item in
+                if list.isEmpty {
+                    Text("No matching songs in this playlist.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                // Tapping a result still plays the whole playlist, starting from that song.
+                ForEach(list, id: \.persistentID) { item in
                     SongRow(item: item) { tracker.play(queue: items, startAt: item) }
                 }
+            } footer: {
+                if !query.isEmpty && !list.isEmpty { Text("\(list.count) of \(items.count) songs") }
             }
         }
         .listStyle(.insetGrouped)
+        .pageBottomMargin()
+        .searchable(text: $query, prompt: "Search in \(playlist.name)")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -262,6 +286,7 @@ private struct AlbumDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .pageBottomMargin()
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -326,7 +351,7 @@ private struct SongRow: View {
                         .font(.subheadline.weight(current ? .semibold : .regular))
                         .foregroundStyle(current ? Theme.accent : .primary)
                         .lineLimit(1)
-                    Text(item.artist ?? "Unknown artist").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(item.displayArtist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if let plays = store.stats.tracks[id]?.plays, plays > 0 {
@@ -338,7 +363,7 @@ private struct SongRow: View {
         .buttonStyle(.plain)
         .swipeActions(edge: .leading) {
             Button {
-                store.toggleFavorite(id: id, title: item.title ?? "Unknown", artist: item.artist ?? "Unknown artist")
+                store.toggleFavorite(id: id, title: item.title ?? "Unknown", artist: item.displayArtist)
             } label: {
                 Label("Favorite", systemImage: store.isFavorite(id) ? "star.slash" : "star")
             }

@@ -3,14 +3,34 @@ options:
   bundleIdPrefix: com.daniel160407
   deploymentTarget:
     iOS: "16.0"
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 11.0.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 8.0.0
 targets:
   MusicCounter:
     type: application
     platform: iOS
-    sources: [MusicCounter]
+    sources:
+      - path: MusicCounter
+        excludes: [Info.plist]
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: GoogleSignIn
+        product: GoogleSignIn
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # Merged with the generated Info.plist; holds the Google sign-in URL scheme.
+        INFOPLIST_FILE: MusicCounter/Info.plist
+        # REVERSED_CLIENT_ID from GoogleService-Info.plist.
+        GOOGLE_REVERSED_CLIENT_ID: com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g
         INFOPLIST_KEY_NSAppleMusicUsageDescription: "Music Counter reads your music library to count how much you listen."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
