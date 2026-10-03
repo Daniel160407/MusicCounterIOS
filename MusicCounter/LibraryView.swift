@@ -7,7 +7,6 @@ struct LibraryView: View {
     @State private var section = 0
     @State private var query = ""
     @State private var songs: [MPMediaItem] = []
-    @State private var albums: [MPMediaItemCollection] = []
     @State private var playlists: [LibraryPlaylist] = []
     @State private var loaded = false
 
@@ -16,8 +15,8 @@ struct LibraryView: View {
             List {
                 Picker("Show", selection: $section) {
                     Text("Songs").tag(0)
-                    Text("Albums").tag(1)
-                    Text("Playlists").tag(2)
+                    Text("Playlists").tag(1)
+                    Text("Recents").tag(2)
                 }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
@@ -31,18 +30,22 @@ struct LibraryView: View {
                                "Songs you add to the Music app (including your own MP3s) appear here.")
                 } else if section == 0 {
                     songsSection
-                } else if section == 1 {
-                    albumsSection
+                } else if section == 2 {
+                    recentsSection
                 } else {
                     playlistsSection
                 }
             }
             .listStyle(.insetGrouped)
             .pageBottomMargin()
-            .searchable(text: $query, prompt: ["Songs or artists", "Albums or artists", "Playlists"][section])
+            .searchable(text: $query, prompt: ["Songs or artists", "Playlists", "Songs or artists"][section])
             .navigationTitle("Library")
             .task(id: tracker.authorized) { load() }
             .refreshable { load() }
+            // Picks up songs added to playlists here or in the Music app.
+            .onReceive(NotificationCenter.default.publisher(for: .MPMediaLibraryDidChange).receive(on: DispatchQueue.main)) { _ in
+                load()
+            }
         }
     }
 
@@ -51,14 +54,6 @@ struct LibraryView: View {
         return songs.filter {
             ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
             $0.displayArtist.localizedCaseInsensitiveContains(query)
-        }
-    }
-
-    private var filteredAlbums: [MPMediaItemCollection] {
-        guard !query.isEmpty else { return albums }
-        return albums.filter {
-            ($0.representativeItem?.albumTitle ?? "").localizedCaseInsensitiveContains(query) ||
-            ($0.representativeItem?.albumArtist ?? $0.representativeItem?.artist ?? "").localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -108,25 +103,61 @@ struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private var albumsSection: some View {
-        let list = filteredAlbums
+    /// Newest additions first, capped so a big library stays quick to scroll.
+    private var recentSongs: [MPMediaItem] {
+        Array(songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(100))
+    }
+
+    @ViewBuilder private var recentsSection: some View {
+        let recent = recentSongs
+        let list = query.isEmpty ? recent : recent.filter {
+            ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
+            $0.displayArtist.localizedCaseInsensitiveContains(query)
+        }
         Section {
-            ForEach(list, id: \.persistentID) { album in
-                NavigationLink {
-                    AlbumDetailView(album: album)
-                } label: {
-                    HStack(spacing: 12) {
-                        ArtworkView(id: String(album.representativeItem?.persistentID ?? 0), size: 56)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(album.representativeItem?.albumTitle ?? "Unknown album")
-                                .font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(album.representativeItem?.albumArtist ?? album.representativeItem?.artist ?? "Unknown artist")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
+            PlayShuffleButtons(items: list)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+        }
+        if list.isEmpty {
+            Section {
+                Text("No matching songs.").font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        ForEach(recentGroups(list), id: \.title) { group in
+            Section(group.title) {
+                ForEach(group.items, id: \.persistentID) { item in
+                    SongRow(item: item) { tracker.play(queue: list, startAt: item) }
                 }
             }
         }
+        if !list.isEmpty {
+            Section {} footer: {
+                Text("The \(recent.count) most recently downloaded or added songs, newest first.")
+            }
+        }
+    }
+
+    /// Buckets songs (already newest first) by when they were added.
+    private func recentGroups(_ items: [MPMediaItem]) -> [(title: String, items: [MPMediaItem])] {
+        let cal = Calendar.current
+        let now = Date()
+        func bucket(_ date: Date) -> String {
+            if cal.isDateInToday(date) { return "Today" }
+            if cal.isDateInYesterday(date) { return "Yesterday" }
+            if let days = cal.dateComponents([.day], from: date, to: now).day {
+                if days < 7 { return "This Week" }
+                if days < 30 { return "This Month" }
+            }
+            return "Earlier"
+        }
+        var groups: [(title: String, items: [MPMediaItem])] = []
+        for item in items {
+            let title = bucket(item.dateAdded)
+            if groups.last?.title == title { groups[groups.count - 1].items.append(item) }
+            else { groups.append((title, [item])) }
+        }
+        return groups
     }
 
     private func emptyState(_ title: String, _ icon: String, _ message: String) -> some View {
@@ -142,16 +173,10 @@ struct LibraryView: View {
 
     private func load() {
         guard MPMediaLibrary.authorizationStatus() == .authorized else { return }
+        MPMediaLibrary.default().beginGeneratingLibraryChangeNotifications()
         songs = (MPMediaQuery.songs().items ?? [])
             .filter { !$0.isCloudItem }
             .sorted { ($0.title ?? "").localizedCaseInsensitiveCompare($1.title ?? "") == .orderedAscending }
-        albums = (MPMediaQuery.albums().collections ?? [])
-            .map { MPMediaItemCollection(items: $0.items.filter { !$0.isCloudItem }) }
-            .filter { !$0.items.isEmpty }
-            .sorted {
-                ($0.representativeItem?.albumTitle ?? "")
-                    .localizedCaseInsensitiveCompare($1.representativeItem?.albumTitle ?? "") == .orderedAscending
-            }
         playlists = (MPMediaQuery.playlists().collections as? [MPMediaPlaylist] ?? [])
             .compactMap { pl in
                 let items = pl.items.filter { !$0.isCloudItem }
@@ -200,6 +225,7 @@ private struct PlaylistDetailView: View {
     @EnvironmentObject var tracker: Tracker
     let playlist: LibraryPlaylist
     @State private var query = ""
+    @State private var pickingSongs = false
 
     /// Matches title, artist or album; the playlist order is kept.
     private var filteredItems: [MPMediaItem] {
@@ -226,6 +252,15 @@ private struct PlaylistDetailView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         PlayShuffleButtons(items: items)
+                        Button { haptic(); pickingSongs = true } label: {
+                            Label("Add Songs", systemImage: "plus")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .foregroundStyle(Theme.accent)
+                                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
                     }
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
@@ -249,46 +284,127 @@ private struct PlaylistDetailView: View {
         .pageBottomMargin()
         .searchable(text: $query, prompt: "Search in \(playlist.name)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { AddToPlaylistButton(items: playlist.items) }
+        .sheet(isPresented: $pickingSongs) { SongPickerSheet(playlist: playlist) }
     }
 }
 
-private struct AlbumDetailView: View {
-    @EnvironmentObject var tracker: Tracker
-    let album: MPMediaItemCollection
+/// Library songs with checkboxes for choosing what goes into a playlist. Songs already in it
+/// stay checked and locked: the iOS media library has no way for apps to remove songs.
+private struct SongPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let playlist: LibraryPlaylist
+    @State private var songs: [MPMediaItem] = []
+    @State private var selected = Set<MPMediaEntityPersistentID>()
+    @State private var query = ""
+    @State private var busy = false
+    @State private var error: String?
+
+    private var existing: Set<MPMediaEntityPersistentID> { Set(playlist.items.map(\.persistentID)) }
+
+    private var filteredSongs: [MPMediaItem] {
+        guard !query.isEmpty else { return songs }
+        return songs.filter {
+            ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
+            $0.displayArtist.localizedCaseInsensitiveContains(query) ||
+            ($0.albumTitle ?? "").localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
-        let rep = album.representativeItem
-        let items = album.items.sorted { $0.albumTrackNumber < $1.albumTrackNumber }
-        List {
-            Section {
-                VStack(spacing: 12) {
-                    ArtworkView(id: String(rep?.persistentID ?? 0), size: 200)
-                        .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-                    VStack(spacing: 4) {
-                        Text(rep?.albumTitle ?? "Unknown album").font(.title3.bold()).multilineTextAlignment(.center)
-                        Text(rep?.albumArtist ?? rep?.artist ?? "Unknown artist")
-                            .font(.body).foregroundStyle(Theme.accent)
-                        Text("\(items.count) songs · \(formatDuration(items.reduce(0) { $0 + $1.playbackDuration }))")
-                            .font(.caption).foregroundStyle(.secondary)
+        let existing = existing
+        let list = filteredSongs
+        NavigationStack {
+            List {
+                Section {
+                    if list.isEmpty {
+                        Text(query.isEmpty ? "No downloaded songs." : "No matching songs.")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    PlayShuffleButtons(items: items)
+                    ForEach(list, id: \.persistentID) { item in
+                        let inPlaylist = existing.contains(item.persistentID)
+                        let checked = inPlaylist || selected.contains(item.persistentID)
+                        Button { toggle(item) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundStyle(checked ? Theme.accent : Color.secondary)
+                                    .opacity(inPlaylist ? 0.5 : 1)
+                                ArtworkView(id: String(item.persistentID), size: 40)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(item.title ?? "Unknown").font(.subheadline).lineLimit(1)
+                                    Text(inPlaylist ? "Already in playlist" : item.displayArtist)
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(inPlaylist || busy)
+                        .accessibilityAddTraits(checked ? .isSelected : [])
+                    }
+                } footer: {
+                    if !songs.isEmpty { Text("\(selected.count) selected · \(existing.count) already in playlist") }
                 }
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
             }
-            Section {
-                ForEach(items, id: \.persistentID) { item in
-                    SongRow(item: item, trackNumber: item.albumTrackNumber) {
-                        tracker.play(queue: items, startAt: item)
-                    }
+            .listStyle(.insetGrouped)
+            .overlay { if busy { ProgressView() } }
+            .searchable(text: $query, prompt: "Songs, artists or albums")
+            .navigationTitle("Add to \(playlist.name)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(selected.isEmpty ? "Add" : "Add \(selected.count)") { add() }
+                        .disabled(selected.isEmpty || busy)
                 }
+            }
+            .alert("Couldn't add to playlist", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(error ?? "")
+            }
+            .task { load() }
+        }
+    }
+
+    private func load() {
+        songs = (MPMediaQuery.songs().items ?? [])
+            .filter { !$0.isCloudItem }
+            .sorted { ($0.title ?? "").localizedCaseInsensitiveCompare($1.title ?? "") == .orderedAscending }
+    }
+
+    private func toggle(_ item: MPMediaItem) {
+        if selected.remove(item.persistentID) == nil { selected.insert(item.persistentID) }
+    }
+
+    /// Adds in library (title) order, after the songs already in the playlist.
+    private func add() {
+        let query = MPMediaQuery.playlists()
+        query.addFilterPredicate(MPMediaPropertyPredicate(value: playlist.id, forProperty: MPMediaPlaylistPropertyPersistentID))
+        guard let target = query.collections?.first as? MPMediaPlaylist else {
+            error = "This playlist is no longer in your library."
+            return
+        }
+        busy = true
+        target.add(songs.filter { selected.contains($0.persistentID) }) { error in
+            DispatchQueue.main.async {
+                busy = false
+                if let error { self.error = playlistErrorMessage(error); return }
+                haptic()
+                dismiss()
             }
         }
-        .listStyle(.insetGrouped)
-        .pageBottomMargin()
-        .navigationBarTitleDisplayMode(.inline)
     }
+}
+
+/// Explains a failed playlist change; iOS refuses edits to playlists made in the Music app.
+private func playlistErrorMessage(_ error: Error?) -> String {
+    if let error = error as? MPError, error.code == .permissionDenied {
+        return "iOS only lets Music Counter change playlists it created. Make a new playlist here, or add the song in the Music app."
+    }
+    return error?.localizedDescription ?? "Something went wrong. Try again."
 }
 
 private struct PlayShuffleButtons: View {
@@ -321,31 +437,22 @@ private struct SongRow: View {
     @EnvironmentObject var tracker: Tracker
     @EnvironmentObject var store: Store
     let item: MPMediaItem
-    var trackNumber: Int? = nil
     let play: () -> Void
+    @State private var addingToPlaylist = false
 
     var body: some View {
         let id = String(item.persistentID)
         let current = tracker.nowPlaying?.persistentID == item.persistentID
         Button(action: play) {
             HStack(spacing: 12) {
-                if let trackNumber {
-                    ZStack {
-                        if current { EqualizerView(active: tracker.isPlaying).scaleEffect(0.6) }
-                        else { Text(trackNumber > 0 ? "\(trackNumber)" : "–").foregroundStyle(.secondary) }
+                ZStack {
+                    ArtworkView(id: id, size: 44)
+                    if current {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.black.opacity(0.45))
+                        EqualizerView(active: tracker.isPlaying).scaleEffect(0.6)
                     }
-                    .font(.subheadline.monospacedDigit())
-                    .frame(width: 24)
-                } else {
-                    ZStack {
-                        ArtworkView(id: id, size: 44)
-                        if current {
-                            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.black.opacity(0.45))
-                            EqualizerView(active: tracker.isPlaying).scaleEffect(0.6)
-                        }
-                    }
-                    .frame(width: 44, height: 44)
                 }
+                .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title ?? "Unknown")
                         .font(.subheadline.weight(current ? .semibold : .regular))
@@ -369,6 +476,147 @@ private struct SongRow: View {
             }
             .tint(.yellow)
         }
+        .swipeActions(edge: .trailing) {
+            Button { addingToPlaylist = true } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
+            }
+            .tint(Theme.accent)
+        }
+        .contextMenu {
+            PlayOnBrowserItems(song: BrowserSong(source: nil, key: id, title: item.title ?? "Unknown", artist: item.displayArtist))
+            Button { addingToPlaylist = true } label: {
+                Label("Add to Playlist…", systemImage: "text.badge.plus")
+            }
+            Button {
+                store.toggleFavorite(id: id, title: item.title ?? "Unknown", artist: item.displayArtist)
+            } label: {
+                if store.isFavorite(id) { Label("Unfavorite", systemImage: "star.slash") }
+                else { Label("Favorite", systemImage: "star") }
+            }
+        }
+        .sheet(isPresented: $addingToPlaylist) { AddToPlaylistSheet(items: [item]) }
         .accessibilityHint("Plays this song")
+    }
+}
+
+/// Toolbar button that adds every song on the screen (a playlist) to a playlist.
+private struct AddToPlaylistButton: ToolbarContent {
+    let items: [MPMediaItem]
+    @State private var adding = false
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { adding = true } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
+            }
+            .disabled(items.isEmpty)
+            .sheet(isPresented: $adding) { AddToPlaylistSheet(items: items) }
+        }
+    }
+}
+
+/// Picks a playlist to add songs to, or makes a new one. Songs already in the playlist are
+/// skipped so nothing is duplicated. iOS only lets an app change playlists it created itself,
+/// so adding to one made in the Music app explains that instead of failing silently.
+private struct AddToPlaylistSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let items: [MPMediaItem]
+    @State private var playlists: [MPMediaPlaylist] = []
+    @State private var busy = false
+    @State private var naming = false
+    @State private var newName = ""
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button { newName = ""; naming = true } label: {
+                        Label("New Playlist…", systemImage: "plus")
+                    }
+                    .disabled(busy)
+                }
+                if !playlists.isEmpty {
+                    Section("Playlists") {
+                        ForEach(playlists, id: \.persistentID) { playlist in
+                            let added = missing(from: playlist).isEmpty
+                            Button { add(missing(from: playlist), to: playlist) } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(playlist.name ?? "Untitled playlist")
+                                            .font(.subheadline).foregroundStyle(.primary).lineLimit(1)
+                                        Text("\(playlist.count) songs").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if added { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(added || busy)
+                            .accessibilityValue(added ? "Already added" : "")
+                        }
+                    }
+                }
+            }
+            .overlay { if busy { ProgressView() } }
+            .navigationTitle(items.count == 1 ? "Add to Playlist" : "Add \(items.count) Songs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .alert("New Playlist", isPresented: $naming) {
+                TextField("Name", text: $newName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") { create() }
+            }
+            .alert("Couldn't add to playlist", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(error ?? "")
+            }
+            .task { load() }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// Regular playlists only; smart and Genius playlists can't be edited.
+    private func load() {
+        playlists = (MPMediaQuery.playlists().collections as? [MPMediaPlaylist] ?? [])
+            .filter { $0.playlistAttributes.isDisjoint(with: [.smart, .genius]) }
+            .sorted { ($0.name ?? "").localizedCaseInsensitiveCompare($1.name ?? "") == .orderedAscending }
+    }
+
+    private func missing(from playlist: MPMediaPlaylist) -> [MPMediaItem] {
+        let have = Set(playlist.items.map(\.persistentID))
+        return items.filter { !have.contains($0.persistentID) }
+    }
+
+    private func create() {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let metadata = MPMediaPlaylistCreationMetadata(name: name.isEmpty ? "New Playlist" : name)
+        busy = true
+        MPMediaLibrary.default().getPlaylist(with: UUID(), creationMetadata: metadata) { playlist, error in
+            DispatchQueue.main.async {
+                if let playlist { add(items, to: playlist) } else { fail(error) }
+            }
+        }
+    }
+
+    private func add(_ songs: [MPMediaItem], to playlist: MPMediaPlaylist) {
+        busy = true
+        playlist.add(songs) { error in
+            DispatchQueue.main.async {
+                if let error { fail(error); return }
+                busy = false
+                haptic()
+                dismiss()
+            }
+        }
+    }
+
+    private func fail(_ error: Error?) {
+        busy = false
+        self.error = playlistErrorMessage(error)
     }
 }

@@ -21,6 +21,7 @@ struct TracksView: View {
                     favoritesCard
                     artistsCard
                 }
+                .syncSkeleton()
                 .padding(.horizontal, 16)
             }
             .pageBottomMargin()

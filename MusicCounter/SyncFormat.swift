@@ -226,12 +226,13 @@ enum WebLink {
             let isTrack = id.range(of: "^[A-Za-z0-9]{22}$", options: .regularExpression) != nil
             return URL(string: isTrack ? "https://open.spotify.com/track/\(id)" : "https://open.spotify.com/search/\(query)")
         case "ytmusic":
-            return URL(string: isYouTubeID(id) ? "https://music.youtube.com/watch?v=\(id)" : "https://music.youtube.com/search?q=\(query)")
+            // Searches go to YouTube, never YouTube Music, as in the extension.
+            return URL(string: isYouTubeID(id) ? "https://music.youtube.com/watch?v=\(id)" : "https://www.youtube.com/results?search_query=\(query)")
         case "youtube":
             return URL(string: isYouTubeID(id) ? "https://www.youtube.com/watch?v=\(id)" : "https://www.youtube.com/results?search_query=\(query)")
         default:
             // Another phone's library song: the nearest place to play it.
-            return URL(string: "https://music.youtube.com/search?q=\(query)")
+            return URL(string: "https://www.youtube.com/results?search_query=\(query)")
         }
     }
 
@@ -243,4 +244,88 @@ enum WebLink {
         if let artwork, !artwork.isEmpty { return URL(string: artwork) }
         return nil
     }
+}
+
+/// A song loaded in a browser running the extension, read from `users/{uid}/live/{deviceID}`
+/// (written by the extension's live.js). Its buttons go back through
+/// `users/{uid}/commands/{deviceID}` as `command: { id, action, at }` (plus `value`, 0–2,
+/// for action `volume`).
+struct RemoteTrack: Equatable {
+    /// A playing track is rewritten every minute; one this quiet means the browser went away.
+    static let playingTimeout: TimeInterval = 3 * 60
+    /// The extension stops offering a track paused this long, so it's hidden here too.
+    static let pausedTimeout: TimeInterval = 30 * 60
+
+    let deviceID: String
+    let deviceName: String
+    let source: String
+    let id: String
+    let title: String
+    let artist: String
+    let artwork: String
+    var paused: Bool
+    /// The browser player's volume, 0–`maxVolume`; nil when the page can't tell.
+    var volume: Double?
+    /// 2 where the extension can boost the page past 100% (YouTube, YouTube Music), else 1.
+    let maxVolume: Double
+    let updatedAt: Date
+
+    init?(deviceID: String, data: [String: Any]) {
+        guard let track = data["track"] as? [String: Any], let source = track["source"] as? String else { return nil }
+        func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
+        func date(_ value: Any?) -> Date { Date(timeIntervalSince1970: (number(value) ?? 0) / 1000) }
+        self.deviceID = deviceID
+        deviceName = data["name"] as? String ?? "Browser"
+        self.source = source
+        id = track["id"] as? String ?? ""
+        title = track["title"] as? String ?? ""
+        artist = track["artist"] as? String ?? ""
+        artwork = track["artwork"] as? String ?? ""
+        paused = track["paused"] as? Bool ?? false
+        let maxVolume = min(max(number(track["maxVolume"]) ?? 1, 1), 2)
+        self.maxVolume = maxVolume
+        volume = number(track["volume"]).map { min(max($0, 0), maxVolume) }
+        updatedAt = date(data["updatedAt"])
+    }
+
+    func isFresh(now: Date) -> Bool {
+        now.timeIntervalSince(updatedAt) < (paused ? Self.pausedTimeout : Self.playingTimeout)
+    }
+
+    /// The key the extension files this track's stats and favorite under.
+    var key: String { "\(source):\(id.isEmpty ? title : id)" }
+
+    var thumbnail: URL? { WebLink.thumbnail(source: source, key: key, artwork: artwork) }
+}
+
+/// A browser signed in to the same account, which can be asked to play a song.
+struct Browser: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let lastSeen: Date
+}
+
+/// A song to open in the browser, as live.js's `open` command takes it. The extension
+/// builds the link the same way its popup does: the track itself when the id is a usable
+/// one, else a search (a YouTube search for a song from an iPhone library).
+struct BrowserSong {
+    let source: String
+    let trackID: String
+    let title: String
+    let artist: String
+
+    init(source: String?, key: String, title: String, artist: String) {
+        self.source = source ?? "ios"
+        // A library song's persistent ID means nothing to a web page.
+        trackID = source == nil ? "" : WebLink.rawID(key)
+        self.title = title
+        self.artist = artist
+    }
+}
+
+/// The browser player's buttons the phone can press; raw values match live.js.
+enum BrowserAction: String {
+    case previous = "prev"
+    case playPause
+    case next
 }

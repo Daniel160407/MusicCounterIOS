@@ -12,9 +12,36 @@ enum Theme {
 func formatDuration(_ seconds: Double) -> String {
     let s = Int(seconds)
     let h = s / 3600, m = (s % 3600) / 60
-    if h > 0 { return "\(h)h \(m)m" }
+    if h > 0 { return m == 0 ? "\(h)h" : "\(h)h \(m)m" }
     if m > 0 { return "\(m)m" }
     return "\(s)s"
+}
+
+/// Greys out and pulses the content while the other devices' stats are first fetched from Firestore.
+private struct SyncSkeleton: ViewModifier {
+    @EnvironmentObject var sync: Sync
+    @State private var dim = false
+
+    func body(content: Content) -> some View {
+        content
+            .redacted(reason: sync.isLoading ? .placeholder : [])
+            .opacity(sync.isLoading && dim ? 0.45 : 1)
+            .allowsHitTesting(!sync.isLoading)
+            .task(id: sync.isLoading) {
+                guard sync.isLoading else {
+                    withTransaction(Transaction(animation: nil)) { dim = false }
+                    return
+                }
+                withAnimation(.easeInOut(duration: 0.8).repeatForever()) { dim = true }
+            }
+    }
+}
+
+extension View {
+    /// Shows a loading skeleton in place of the stats until sync has fetched them.
+    func syncSkeleton() -> some View {
+        modifier(SyncSkeleton())
+    }
 }
 
 struct Card<Content: View>: View {
@@ -79,16 +106,33 @@ struct ServiceBreakdown: View {
 struct ProgressRing: View {
     var progress: Double
     var lineWidth: CGFloat = 14
+    /// Splits the filled arc into coloured parts by share; the theme gradient when empty.
+    var segments: [(color: Color, share: Double)] = []
 
     var body: some View {
+        let fill = min(max(progress, 0.001), 1)
         ZStack {
             Circle().stroke(Color.primary.opacity(0.08), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: min(max(progress, 0.001), 1))
-                .stroke(Theme.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.8), value: progress)
+            if segments.isEmpty {
+                arc(to: fill).stroke(Theme.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .animation(.easeOut(duration: 0.8), value: fill)
+            } else {
+                // Each part is drawn from the start of the ring to its own end, last part first, so the
+                // earlier parts sit on top and their rounded ends overlap the next colour.
+                let total = segments.reduce(0) { $0 + $1.share }
+                let ends = segments.indices.map { i in
+                    segments[...i].reduce(0) { $0 + $1.share } / max(total, .ulpOfOne) * fill
+                }
+                ForEach(segments.indices.reversed(), id: \.self) { i in
+                    arc(to: ends[i]).stroke(segments[i].color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .animation(.easeOut(duration: 0.8), value: ends[i])
+                }
+            }
         }
+    }
+
+    private func arc(to end: Double) -> some Shape {
+        Circle().trim(from: 0, to: end).rotation(.degrees(-90))
     }
 }
 
@@ -156,6 +200,24 @@ struct ArtworkView: View {
         if let art = query.items?.first?.artwork?.image(at: CGSize(width: size * 3, height: size * 3)) {
             Self.cache.setObject(art, forKey: key)
             image = art
+        }
+    }
+}
+
+/// Context-menu items that send a song to each signed-in browser to play there.
+/// Shows nothing when signed out or no browser has synced recently.
+struct PlayOnBrowserItems: View {
+    @EnvironmentObject var sync: Sync
+    let song: BrowserSong
+
+    var body: some View {
+        ForEach(sync.browsers) { browser in
+            Button {
+                haptic()
+                sync.play(song, on: browser)
+            } label: {
+                Label("Play on \(browser.name)", systemImage: "desktopcomputer")
+            }
         }
     }
 }
@@ -231,6 +293,9 @@ struct TrackRow: View {
             }
 
             StarButton(id: track.id, title: track.title, artist: track.artist, source: track.source)
+        }
+        .contextMenu {
+            PlayOnBrowserItems(song: BrowserSong(source: track.source, key: track.id, title: track.title, artist: track.artist))
         }
     }
 }

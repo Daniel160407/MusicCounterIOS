@@ -54,6 +54,9 @@ struct HistoryView: View {
                                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             }
                             .contentShape(Rectangle())
+                            .contextMenu {
+                                PlayOnBrowserItems(song: BrowserSong(source: e.source, key: e.trackID, title: e.title, artist: e.artist))
+                            }
                             .onTapGesture {
                                 if let source = e.source {
                                     if let url = WebLink.track(source: source, key: e.trackID, title: e.title, artist: e.artist) {
@@ -73,6 +76,7 @@ struct HistoryView: View {
                     }
                 }
             }
+            .syncSkeleton()
             .navigationTitle("History")
             .searchable(text: $query, prompt: "Songs, artists or services")
             .pageBottomMargin()

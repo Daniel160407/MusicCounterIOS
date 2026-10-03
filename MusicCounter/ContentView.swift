@@ -43,6 +43,23 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.8), value: achievements.justUnlocked.first?.id)
+        .overlay(alignment: .top) {
+            if let notice = sync.sentNotice {
+                Label(notice, systemImage: "desktopcomputer")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task(id: notice) {
+                        guard (try? await Task.sleep(nanoseconds: 2_000_000_000)) != nil else { return }
+                        sync.sentNotice = nil
+                    }
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: sync.sentNotice)
         .sheet(isPresented: $showPlayer) {
             NowPlayingView()
                 .presentationDragIndicator(.hidden)
@@ -71,26 +88,35 @@ extension ContentView {
 
 private struct MiniPlayerInset: ViewModifier {
     @EnvironmentObject var tracker: Tracker
+    @EnvironmentObject var sync: Sync
     @Binding var showPlayer: Bool
 
     func body(content: Content) -> some View {
+        let shown = MiniPlayerContent(tracker: tracker, sync: sync)
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            if let item = tracker.nowPlaying {
+            switch shown {
+            case .phone(let item):
                 MiniPlayerBar(item: item) { showPlayer = true }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            case .browser(let track):
+                BrowserPlayerBar(track: track) { showPlayer = true }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            case nil:
+                EmptyView()
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tracker.nowPlaying?.persistentID)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shown?.key)
     }
 }
 
 /// Room under a page's last row, enough to scroll it clear of the mini player.
 private struct PageBottomMargin: ViewModifier {
     @EnvironmentObject var tracker: Tracker
+    @EnvironmentObject var sync: Sync
 
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: tracker.nowPlaying == nil ? 24 : 100)
+            Color.clear.frame(height: tracker.nowPlaying == nil && sync.browserTrack == nil ? 24 : 100)
         }
     }
 }

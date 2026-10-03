@@ -19,13 +19,16 @@ struct HomeView: View {
                 VStack(spacing: 16) {
                     if !tracker.authorized { permissionCard }
                     if let error = sync.error { syncErrorCard(error) }
-                    heroCard
-                    statRow
-                    weekCard
-                    servicesCard
-                    topTracksCard
-                    favoritesCard
-                    artistsCard
+                    VStack(spacing: 16) {
+                        heroCard
+                        statRow
+                        weekCard
+                        servicesCard
+                        topTracksCard
+                        favoritesCard
+                        artistsCard
+                    }
+                    .syncSkeleton()
                 }
                 .padding(.horizontal, 16)
             }
@@ -113,7 +116,7 @@ struct HomeView: View {
         return Card {
             HStack(spacing: 20) {
                 ZStack {
-                    ProgressRing(progress: today / goal)
+                    ProgressRing(progress: today / goal, segments: todayServiceSegments)
                     VStack(spacing: 0) {
                         Text(formatDuration(today)).font(.title2.bold()).monospacedDigit()
                         Text("listened today").font(.caption).foregroundStyle(.secondary)
@@ -140,6 +143,11 @@ struct HomeView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// Today's listening split by service, in the service colours, for the goal ring.
+    private var todayServiceSegments: [(color: Color, share: Double)] {
+        Service.ordered(store.lastDays(1).last?.services ?? [:]).map { (Service.color($0.key), $0.value) }
     }
 
     private var statRow: some View {

@@ -12,6 +12,8 @@ import GoogleSignIn
 ///     users/{uid}/favorites/{key}              key, id, title, artist, source, addedAt
 ///     users/{uid}/devices/{deviceID}           platform, name, updatedAt, total, firstSeen, sources, parts
 ///     users/{uid}/devices/{deviceID}/parts/{n} json   (tracks, artists, days-YYYY, history-YYYY-MM-N)
+///     users/{uid}/live/{deviceID}              what a browser is playing (see RemoteTrack)
+///     users/{uid}/commands/{deviceID}          command: { id, action, at, value? }, the phone's presses for that browser
 ///
 /// Each device writes only its own document; `parts` maps part names to content hashes so
 /// only changed parts are uploaded or fetched. Favorites and the retention setting are shared.
@@ -21,6 +23,14 @@ final class Sync: ObservableObject {
     @Published private(set) var lastSync: Date?
     @Published private(set) var error: String?
     @Published private(set) var otherDevices: [String] = []
+    /// True from sign-in (or launch while signed in) until the other devices' stats first arrive.
+    @Published private(set) var isLoading = false
+    /// The song loaded in a signed-in browser, for the mini player; nil when none is fresh.
+    @Published private(set) var browserTrack: RemoteTrack?
+    /// Browsers that can be asked to play a song, most recently seen first.
+    @Published private(set) var browsers: [Browser] = []
+    /// A short confirmation after a song was sent to a browser, shown as a banner.
+    @Published var sentNotice: String?
 
     /// False until GoogleService-Info.plist is added to the app.
     static var isConfigured: Bool { FirebaseApp.app() != nil }
@@ -37,6 +47,10 @@ final class Sync: ObservableObject {
     /// The newest hash seen for each part, so a slow fetch can't overwrite a newer one.
     private var expected: [String: [String: String]] = [:]
     private var lastRemoteRetention: String?
+    private var liveTracks: [RemoteTrack] = []
+    private var browserDevices: [String: (name: String, updatedAt: Date)] = [:]
+    /// Re-checks freshness while a browser track is showing, so a closed browser drops out.
+    private var liveTimer: Timer?
 
     let deviceID: String = {
         let key = "syncDeviceID"
@@ -99,9 +113,13 @@ final class Sync: ObservableObject {
         fetched = [:]
         expected = [:]
         lastRemoteRetention = nil
+        liveChanged([])
+        browserDevices = [:]
+        browsers = []
         store.setRemote([:])
         otherDevices = []
         email = user?.email
+        isLoading = user != nil
         guard let user else { return }
 
         mergeLocalFavorites(uid: user.uid)
@@ -135,10 +153,19 @@ final class Sync: ObservableObject {
             Task { @MainActor in self?.store.replaceFavorites(favorites) }
         })
 
+        listeners.append(user.collection("live").addSnapshotListener { [weak self] snapshot, _ in
+            guard let snapshot else { return }
+            let tracks = snapshot.documents.compactMap { RemoteTrack(deviceID: $0.documentID, data: $0.data()) }
+            Task { @MainActor in self?.liveChanged(tracks) }
+        })
+
         listeners.append(user.collection("devices").addSnapshotListener { [weak self] snapshot, err in
             guard let snapshot else {
                 let message = err?.localizedDescription
-                Task { @MainActor in self?.error = message }
+                Task { @MainActor in
+                    self?.error = message
+                    self?.isLoading = false
+                }
                 return
             }
             let docs = snapshot.documents.map { ($0.documentID, $0.data()) }
@@ -193,6 +220,12 @@ final class Sync: ObservableObject {
             expected[id] = nil
         }
         deviceMeta = meta
+        browserDevices = [:]
+        for (id, data) in docs where data["platform"] as? String == "chrome" {
+            let ms = (data["updatedAt"] as? NSNumber)?.doubleValue ?? 0
+            browserDevices[id] = (data["name"] as? String ?? "Browser", Date(timeIntervalSince1970: ms / 1000))
+        }
+        rebuildBrowsers()
 
         let devices = db.collection("users").document(uid).collection("devices")
         for w in wanted {
@@ -207,6 +240,7 @@ final class Sync: ObservableObject {
 
         rebuildRemote()
         lastSync = Date()
+        isLoading = false
     }
 
     private func rebuildRemote() {
@@ -228,6 +262,95 @@ final class Sync: ObservableObject {
         }
         store.setRemote(devices)
         otherDevices = devices.values.map(\.name).sorted()
+    }
+
+    // MARK: - Browser remote
+
+    private func liveChanged(_ tracks: [RemoteTrack]) {
+        liveTracks = tracks
+        pickBrowserTrack()
+        rebuildBrowsers()
+    }
+
+    /// Browsers that synced or played something in the last 30 days; older ones are
+    /// probably uninstalled. A browser that is playing counts as seen now.
+    private func rebuildBrowsers() {
+        var seen = browserDevices
+        for track in liveTracks {
+            let known = seen[track.deviceID]
+            if known == nil || known!.updatedAt < track.updatedAt { seen[track.deviceID] = (track.deviceName, track.updatedAt) }
+        }
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600)
+        let list = seen.filter { $0.value.updatedAt > cutoff }
+            .map { Browser(id: $0.key, name: $0.value.name, lastSeen: $0.value.updatedAt) }
+            .sorted { $0.lastSeen > $1.lastSeen }
+        if list != browsers { browsers = list }
+    }
+
+    /// Asks a browser to open a song and start it. The extension checks within 30 seconds
+    /// when nothing is playing there, or a few seconds when something is.
+    func play(_ song: BrowserSong, on browser: Browser) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        db.collection("users").document(uid).collection("commands").document(browser.id).setData([
+            "command": [
+                "id": UUID().uuidString, "action": "open", "at": Self.now,
+                "source": song.source, "trackId": song.trackID, "title": song.title, "artist": song.artist,
+            ] as [String: Any],
+        ]) { [weak self] err in
+            guard let err else { return }
+            Task { @MainActor in self?.error = err.localizedDescription }
+        }
+        sentNotice = "Sent to \(browser.name)"
+    }
+
+    /// A playing browser before a paused one, then the most recently updated.
+    private func pickBrowserTrack() {
+        let now = Date()
+        let fresh = liveTracks.filter { $0.isFresh(now: now) }
+        let pick = fresh.max { ($0.paused ? 0 : 1, $0.updatedAt) < ($1.paused ? 0 : 1, $1.updatedAt) }
+        if pick != browserTrack { browserTrack = pick }
+
+        if fresh.isEmpty {
+            liveTimer?.invalidate()
+            liveTimer = nil
+        } else if liveTimer == nil {
+            liveTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.pickBrowserTrack() }
+            }
+        }
+    }
+
+    /// Presses a button on the browser's player. The extension checks for presses every few
+    /// seconds while music is loaded, and reports the result back through `live`.
+    func sendBrowserCommand(_ action: BrowserAction) {
+        guard let uid = Auth.auth().currentUser?.uid, let track = browserTrack else { return }
+        db.collection("users").document(uid).collection("commands").document(track.deviceID).setData([
+            "command": ["id": UUID().uuidString, "action": action.rawValue, "at": Self.now],
+        ]) { [weak self] err in
+            guard let err else { return }
+            Task { @MainActor in self?.error = err.localizedDescription }
+        }
+        // Flip the button now; the browser's own report follows a few seconds later.
+        guard action == .playPause, let index = liveTracks.firstIndex(where: { $0.deviceID == track.deviceID }) else { return }
+        liveTracks[index].paused.toggle()
+        pickBrowserTrack()
+    }
+
+    /// Sets the browser player's volume (0–2, 1 being the player's own 100%). Sent once the slider is let go; the extension
+    /// applies it within a few seconds and reports the new level back through `live`.
+    func setBrowserVolume(_ value: Double) {
+        guard let uid = Auth.auth().currentUser?.uid, let track = browserTrack else { return }
+        let value = (min(max(value, 0), track.maxVolume) * 100).rounded() / 100
+        db.collection("users").document(uid).collection("commands").document(track.deviceID).setData([
+            "command": ["id": UUID().uuidString, "action": "volume", "value": value, "at": Self.now] as [String: Any],
+        ]) { [weak self] err in
+            guard let err else { return }
+            Task { @MainActor in self?.error = err.localizedDescription }
+        }
+        // Keep the slider where it was dropped until the browser's report arrives.
+        guard let index = liveTracks.firstIndex(where: { $0.deviceID == track.deviceID }) else { return }
+        liveTracks[index].volume = value
+        pickBrowserTrack()
     }
 
     // MARK: - Writing

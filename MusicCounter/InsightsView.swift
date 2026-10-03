@@ -18,6 +18,7 @@ struct InsightsView: View {
                     servicesCard
                     hoursCard
                 }
+                .syncSkeleton()
                 .padding(.horizontal, 16)
             }
             .pageBottomMargin()
