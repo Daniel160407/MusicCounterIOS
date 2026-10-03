@@ -1,0 +1,19 @@
+name: MusicCounter
+options:
+  bundleIdPrefix: com.daniel160407
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  MusicCounter:
+    type: application
+    platform: iOS
+    sources: [MusicCounter]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSAppleMusicUsageDescription: "Music Counter reads your music library to count how much you listen."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
