@@ -2,7 +2,9 @@ import Foundation
 import MediaPlayer
 
 /// Counts listening two ways:
-///  1. Live: while the app is running, watches the system Music player and accrues real seconds.
+///  1. Live: while the app is running, watches the player and accrues real seconds. Songs started
+///     here play in the app's own player (see AppPlayer), which keeps it running on the lock screen;
+///     songs it can't play, or ones started in the Music app, are watched in the system Music player.
 ///  2. Reconcile: on launch / foreground, compares the library's playCount against the last
 ///     snapshot and credits plays that happened while the app was closed (estimated time).
 @MainActor
@@ -15,6 +17,9 @@ final class Tracker: ObservableObject {
 
     private let store: Store
     private let player = MPMusicPlayerController.systemMusicPlayer
+    private let appPlayer = AppPlayer()
+    /// Whether the app's own player, rather than the Music app's, is the one in use.
+    private var usingApp = false
     private var timer: Timer?
     private var lastTick = Date()
 
@@ -27,7 +32,11 @@ final class Tracker: ObservableObject {
 
     init(store: Store) {
         self.store = store
+        appPlayer.onChange = { [weak self] in self?.refreshNowPlaying() }
     }
+
+    private var sourceItem: MPMediaItem? { usingApp ? appPlayer.current : player.nowPlayingItem }
+    private var sourcePlaying: Bool { usingApp ? appPlayer.isPlaying : player.playbackState == .playing }
 
     func start() {
         MPMediaLibrary.requestAuthorization { [weak self] status in
@@ -74,10 +83,21 @@ final class Tracker: ObservableObject {
     }
 
     private func refreshNowPlaying(unseen: TimeInterval? = nil) {
-        nowPlaying = player.nowPlayingItem
-        isPlaying = player.playbackState == .playing
-        shuffleOn = player.shuffleMode != .off
-        repeatMode = player.repeatMode == .default ? .none : player.repeatMode
+        // Whichever player is playing is the one shown; when both are stopped, the last one used.
+        if appPlayer.isPlaying {
+            usingApp = true
+        } else if player.playbackState == .playing {
+            usingApp = false
+        }
+        nowPlaying = sourceItem
+        isPlaying = sourcePlaying
+        if usingApp {
+            shuffleOn = appPlayer.shuffleOn
+            repeatMode = appPlayer.repeatMode
+        } else {
+            shuffleOn = player.shuffleMode != .off
+            repeatMode = player.repeatMode == .default ? .none : player.repeatMode
+        }
         let id = nowPlaying.map { String($0.persistentID) }
         if id != currentID {
             let unseen = unseen ?? unseenTime
@@ -111,8 +131,8 @@ final class Tracker: ObservableObject {
         let elapsed = min(now.timeIntervalSince(lastTick), 2)
         lastTick = now
 
-        guard player.playbackState == .playing,
-              let item = player.nowPlayingItem,
+        guard sourcePlaying,
+              let item = sourceItem,
               !item.isCloudItem else { return }
 
         let id = String(item.persistentID)
@@ -138,36 +158,44 @@ final class Tracker: ObservableObject {
         if !awarded && progress >= threshold {
             awarded = true
             store.addPlays(1, to: id, title: title, artist: artist, on: Date())
-            store.mutate { $0.pendingLive[id, default: 0] += 1 }
+            // The Music app will add this play to its playCount; reconcile must not count it again.
+            // The app's own player doesn't touch playCount, so there's nothing to hold back.
+            if !usingApp { store.mutate { $0.pendingLive[id, default: 0] += 1 } }
         }
     }
 
     // MARK: - Playback controls
 
     func togglePlayPause() {
+        if usingApp { appPlayer.togglePlayPause(); return }
         if player.playbackState == .playing { player.pause() } else { player.play() }
         isPlaying = player.playbackState == .playing
     }
 
-    func next() { player.skipToNextItem() }
+    func next() {
+        if usingApp { appPlayer.next() } else { player.skipToNextItem() }
+    }
 
     func previous() {
+        if usingApp { appPlayer.previous(); return }
         // Like the Music app: restart the song first, go to the previous one on a second press.
         if player.currentPlaybackTime > 3 { player.skipToBeginning() } else { player.skipToPreviousItem() }
     }
 
     /// Current position in the playing song, read straight from the player.
     var playbackTime: TimeInterval {
+        if usingApp { return appPlayer.time }
         let t = player.currentPlaybackTime
         return t.isFinite ? max(t, 0) : 0
     }
 
     func seek(to time: TimeInterval) {
-        player.currentPlaybackTime = max(time, 0)
-        lastPlaybackTime = player.currentPlaybackTime
+        if usingApp { appPlayer.seek(to: time) } else { player.currentPlaybackTime = max(time, 0) }
+        lastPlaybackTime = max(time, 0)
     }
 
     func toggleShuffle() {
+        if usingApp { appPlayer.toggleShuffle(); return }
         player.shuffleMode = shuffleOn ? .off : .songs
         shuffleOn.toggle()
     }
@@ -180,11 +208,11 @@ final class Tracker: ObservableObject {
         case .all: next = .one
         default: next = .none
         }
-        player.repeatMode = next
+        if usingApp { appPlayer.setRepeat(next) } else { player.repeatMode = next }
         repeatMode = next
     }
 
-    /// Plays a song from the library in the system Music player.
+    /// Plays a song from the library.
     func play(id: String) {
         guard let item = Self.item(id: id) else { return }
         play(queue: [item], startAt: item)
@@ -198,6 +226,18 @@ final class Tracker: ObservableObject {
 
     /// Replaces the queue with `items` and starts at `startAt` (or the first song, or a random one when shuffling).
     func play(queue items: [MPMediaItem], startAt start: MPMediaItem? = nil, shuffle: Bool = false) {
+        // Songs with a plain file play here, so the lock screen can't hide what plays.
+        let own = items.filter(AppPlayer.canPlay)
+        if !own.isEmpty, start.map(AppPlayer.canPlay) ?? true {
+            if player.playbackState == .playing { player.pause() }
+            usingApp = true
+            appPlayer.play(own, startAt: start, shuffle: shuffle)
+            return
+        }
+
+        // Protected (Apple Music) songs only play in the Music app's player.
+        appPlayer.pause()
+        usingApp = false
         let playable = items.filter { !$0.isCloudItem }
         guard !playable.isEmpty else { return }
         player.setQueue(with: MPMediaItemCollection(items: playable))

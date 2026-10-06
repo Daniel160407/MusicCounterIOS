@@ -92,7 +92,14 @@ YouTube search result.
 
 ## How it counts
 
-- **Live** (app open or recently backgrounded): watches the system Music player and accrues real
+- **Played from Music Counter:** songs you start in this app (Library, Tracks, History, artists,
+  playlists) play in its own player when they have a plain file — MP3s and other songs imported
+  from a Mac. iOS keeps the app running while it plays, so every second is measured even with the
+  phone locked, and a song skipped on the lock screen still counts if it played past half. The lock
+  screen and Control Center show the song with play/pause, next, previous and a seek bar; calls and
+  other apps' audio pause it. Apple Music downloads are copy-protected, so those still play in the
+  Music app's player. Plays made here don't add to the Music app's own play counts.
+- **Live** (Music app's player, app open or recently backgrounded): watches the system Music player and accrues real
   seconds; a song earns a play after half of it (a flat minute if the length is unknown). A song
   that started while the app was suspended (e.g. it advanced on the lock screen) keeps the part
   already played toward that half when you come back.
@@ -158,8 +165,11 @@ Stats are stored in `Documents/stats.json` on the device (and in Firestore once 
 
 ## Limits
 
-- iOS suspends the app in the background, so exact minutes are only measured while it runs;
-  otherwise they are estimated from play counts.
+- For music started in the Music app, iOS suspends this app in the background, so exact minutes are
+  only measured while it runs; otherwise they are estimated from play counts, which the Music app
+  only raises when a song plays to its end — a song skipped on the lock screen isn't counted. Start
+  music from Music Counter to have every play counted.
+- The app's own player starts fresh each launch; it doesn't remember its queue after iOS closes the app.
 - Playlists made in the Music app can be played but not edited here (an iOS restriction).
 - Only songs in the Music app library are visible. MP3s played from the Files app or other
   player apps are not.
