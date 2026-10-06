@@ -28,8 +28,9 @@ screen then shows this phone and the browser combined, favorites and the history
 setting are shared, and tapping a browser track opens it on YouTube, YouTube Music or Spotify.
 Each device uploads only its own listening, and **Reset** erases only this phone's share.
 While the other devices' stats are first fetched from Firestore (after signing in, or on launch),
-the app shows just its logo in the middle of the screen, carrying on from the launch screen, for up to
-10 seconds.
+the app shows its logo in the middle of the screen, carrying on from the launch screen, for up to
+10 seconds. The logo then glides up as a week of columns, each split into Spotify, YouTube and
+iPhone, rises in beneath it, the two centred together, and the columns roll in a wave while it loads (held still when Reduce Motion is on).
 
 Sync is off until it is set up (use the same Firebase project as the extension; see its README
 for creating the project, Firestore and the Google provider):

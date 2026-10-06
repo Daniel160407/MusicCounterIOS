@@ -17,30 +17,156 @@ func formatDuration(_ seconds: Double) -> String {
     return "\(s)s"
 }
 
-/// The app logo alone in the middle of the screen, like YouTube's launch, while the other devices' stats
-/// are first fetched from Firestore. Matches the launch screen, so the app opens straight into it.
+/// The app logo in the middle of the screen, like YouTube's launch, while the other devices' stats are
+/// first fetched from Firestore, with a week of service columns swaying beneath it. The logo opens exactly
+/// where the launch screen puts it, then glides up as the columns rise so the two sit centred together.
 struct SyncSplash: View {
     @EnvironmentObject var sync: Sync
     /// Never holds the app back for long, e.g. when offline.
     @State private var timedOut = false
+    @State private var showColumns = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var active: Bool { sync.isLoading && !timedOut }
 
     var body: some View {
         ZStack {
-            if sync.isLoading && !timedOut {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
-                    .overlay(Image("AppLogo"))
-                    .transition(.opacity)
-                    .task {
-                        guard (try? await Task.sleep(nanoseconds: 10_000_000_000)) != nil else { return }
-                        timedOut = true
+            if active {
+                // The background and logo fade out once the stats are in…
+                ZStack {
+                    Color(.systemBackground)
+                    layout(logo: true)
+                }
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .task {
+                    if reduceMotion {
+                        showColumns = true
+                    } else {
+                        // One frame on the launch screen's layout first, so the hand-off doesn't jump.
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) { showColumns = true }
                     }
+                    guard (try? await Task.sleep(nanoseconds: 10_000_000_000)) != nil else { return }
+                    timedOut = true
+                }
+                .onDisappear { showColumns = false }
+
+                // …while the columns, on their own layer laid out the same way, go at once rather than
+                // lingering through the fade.
+                layout(logo: false)
+                    .ignoresSafeArea()
+                    .transition(.identity)
             }
         }
-        .animation(.easeOut(duration: 0.3), value: sync.isLoading && !timedOut)
+        .animation(.easeOut(duration: 0.3), value: active)
         .onChange(of: sync.isLoading) { loading in
             // A later sign-in gets the full wait again.
             if loading { timedOut = false }
+        }
+    }
+
+    /// The logo with the columns beneath it, centred together on the whole screen as the launch screen's
+    /// image is; one layer draws the logo and the other the columns.
+    private func layout(logo: Bool) -> some View {
+        VStack(spacing: 36) {
+            Image("AppLogo").opacity(logo ? 1 : 0)
+            if showColumns {
+                if logo {
+                    SplashColumns().hidden()
+                } else {
+                    SplashColumns().transition(.opacity)
+                }
+            }
+        }
+    }
+}
+
+/// Seven day columns, each split into Spotify, YouTube and iPhone, rising in one after another and then
+/// rolling in a wave while the services trade shares, as if the week were still being tallied.
+private struct SplashColumns: View {
+    private static let services = ["spotify", "youtube", "ios"]
+    private static let days = ["M", "T", "W", "T", "F", "S", "S"]
+    private static let maxHeight: CGFloat = 72
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+    @State private var risen = false
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let t = reduceMotion ? 0 : context.date.timeIntervalSince(start)
+            VStack(spacing: 18) {
+                HStack(alignment: .bottom, spacing: 10) {
+                    ForEach(0..<Self.days.count, id: \.self) { day in
+                        VStack(spacing: 6) {
+                            column(day: day, t: t)
+                                .frame(height: Self.maxHeight, alignment: .bottom)
+                            Text(Self.days[day])
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .scaleEffect(x: 1, y: risen ? 1 : 0.01, anchor: .bottom)
+                        .opacity(risen ? 1 : 0)
+                        .animation(.spring(response: 0.55, dampingFraction: 0.7).delay(Double(day) * 0.07), value: risen)
+                    }
+                }
+                legend(t: t)
+                    .opacity(risen ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4).delay(0.5), value: risen)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading your listening")
+        .onAppear {
+            start = Date()
+            if reduceMotion { risen = true } else { DispatchQueue.main.async { risen = true } }
+        }
+    }
+
+    /// How far into its swing a day's column is (0…1): a wave running left to right across the week.
+    private func swing(day: Int, t: Double) -> Double {
+        reduceMotion ? [0.55, 0.8, 0.45, 1, 0.7, 0.35, 0.6][day] : 0.5 + 0.5 * sin(t * 2.4 - Double(day) * 0.75)
+    }
+
+    private func column(day: Int, t: Double) -> some View {
+        let lift = swing(day: day, t: t)
+        let height = Self.maxHeight * CGFloat(0.3 + 0.7 * lift)
+        // Each service's share of the day drifts at its own pace, so the segments slide past one another.
+        let weights = Self.services.indices.map { k in
+            1.1 + sin(t * (1.1 + Double(k) * 0.35) + Double(day) * 1.3 + Double(k) * 2.1)
+        }
+        let total = weights.reduce(0, +)
+        let gaps = CGFloat(Self.services.count - 1) * 2
+        return VStack(spacing: 2) {
+            ForEach(Self.services.indices, id: \.self) { k in
+                Rectangle()
+                    .fill(Service.color(Self.services[k]))
+                    .frame(height: max(0, (height - gaps) * CGFloat(weights[k] / total)))
+            }
+        }
+        .frame(width: 14)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        // The crest of the wave catches the light.
+        .brightness(0.12 * (lift - 0.5))
+        .shadow(color: Service.color(Self.services[day % Self.services.count]).opacity(0.35 * lift), radius: 6 * lift, y: 2)
+    }
+
+    /// The three services, their dots pulsing in turn.
+    private func legend(t: Double) -> some View {
+        HStack(spacing: 14) {
+            ForEach(Self.services.indices, id: \.self) { k in
+                let pulse = reduceMotion ? 0 : max(0, sin(t * 3 - Double(k) * 1.2))
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(Service.color(Self.services[k]))
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(1 + 0.45 * pulse)
+                    Text(Service.label(Self.services[k]))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
