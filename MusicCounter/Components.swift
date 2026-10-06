@@ -17,30 +17,31 @@ func formatDuration(_ seconds: Double) -> String {
     return "\(s)s"
 }
 
-/// Greys out and pulses the content while the other devices' stats are first fetched from Firestore.
-private struct SyncSkeleton: ViewModifier {
+/// The app logo alone in the middle of the screen, like YouTube's launch, while the other devices' stats
+/// are first fetched from Firestore. Matches the launch screen, so the app opens straight into it.
+struct SyncSplash: View {
     @EnvironmentObject var sync: Sync
-    @State private var dim = false
+    /// Never holds the app back for long, e.g. when offline.
+    @State private var timedOut = false
 
-    func body(content: Content) -> some View {
-        content
-            .redacted(reason: sync.isLoading ? .placeholder : [])
-            .opacity(sync.isLoading && dim ? 0.45 : 1)
-            .allowsHitTesting(!sync.isLoading)
-            .task(id: sync.isLoading) {
-                guard sync.isLoading else {
-                    withTransaction(Transaction(animation: nil)) { dim = false }
-                    return
-                }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever()) { dim = true }
+    var body: some View {
+        ZStack {
+            if sync.isLoading && !timedOut {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+                    .overlay(Image("AppLogo"))
+                    .transition(.opacity)
+                    .task {
+                        guard (try? await Task.sleep(nanoseconds: 10_000_000_000)) != nil else { return }
+                        timedOut = true
+                    }
             }
-    }
-}
-
-extension View {
-    /// Shows a loading skeleton in place of the stats until sync has fetched them.
-    func syncSkeleton() -> some View {
-        modifier(SyncSkeleton())
+        }
+        .animation(.easeOut(duration: 0.3), value: sync.isLoading && !timedOut)
+        .onChange(of: sync.isLoading) { loading in
+            // A later sign-in gets the full wait again.
+            if loading { timedOut = false }
+        }
     }
 }
 
@@ -71,12 +72,46 @@ extension View {
 }
 
 /// Listening split by service, as in the extension's "By service" list.
+/// Bars and columns grow in when they appear and whenever `key` (the range,
+/// period or day on show) changes — not when the numbers merely tick up.
+private struct GrowIn<Key: Equatable>: ViewModifier {
+    @Binding var grown: Bool
+    let key: Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: replay)
+            .onChange(of: key) { _ in replay() }
+    }
+
+    private func replay() {
+        guard !reduceMotion else { grown = true; return }
+        var reset = Transaction()
+        reset.disablesAnimations = true
+        withTransaction(reset) { grown = false }
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { grown = true }
+        }
+    }
+}
+
+extension View {
+    func growIn<Key: Equatable>(_ grown: Binding<Bool>, key: Key) -> some View {
+        modifier(GrowIn(grown: grown, key: key))
+    }
+}
+
 struct ServiceBreakdown: View {
     let services: [ServiceTotal]
+    /// What the breakdown covers (a period, "today"…); the bars grow in again when it changes.
+    var key: String = ""
+    @State private var grown = false
 
     var body: some View {
         let total = services.reduce(0) { $0 + $1.seconds }
         let max = services.first?.seconds ?? 1
+        Group {
         if services.isEmpty {
             Text("Nothing recorded yet.").font(.subheadline).foregroundStyle(.secondary)
         }
@@ -95,11 +130,13 @@ struct ServiceBreakdown: View {
                 }
                 GeometryReader { geo in
                     Capsule().fill(Service.color(s.source))
-                        .frame(width: geo.size.width * CGFloat(max > 0 ? s.seconds / max : 0))
+                        .frame(width: grown ? geo.size.width * CGFloat(max > 0 ? s.seconds / max : 0) : 0)
                 }
                 .frame(height: 4)
             }
         }
+        }
+        .growIn($grown, key: key)
     }
 }
 
@@ -296,6 +333,7 @@ struct TrackRow: View {
         }
         .contextMenu {
             PlayOnBrowserItems(song: BrowserSong(source: track.source, key: track.id, title: track.title, artist: track.artist))
+            AddToPlaylistMenu(track: PlaylistTrack(source: track.source, key: track.id, title: track.title, artist: track.artist))
         }
     }
 }

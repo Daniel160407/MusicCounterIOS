@@ -195,6 +195,147 @@ enum AchievementMetrics {
         ]
     }
 
+    /// When each badge was really earned, replayed from the hour-by-hour listening,
+    /// the play history and the favourites. Badges can be earned from listening that
+    /// happened before they existed, or that arrives late from another device, so the
+    /// moment the app notices isn't always the moment it was earned. An hour's
+    /// listening is taken as spread evenly across it, which places a time to within
+    /// the hour. Per-artist time has no timeline, so Superfan and Ultimate Fan can't
+    /// be dated. Mirrors replayUnlockTimes in the extension's achievements.js.
+    @MainActor
+    static func replayUnlockTimes(_ store: Store) -> [String: Date] {
+        let byMetric = Dictionary(grouping: Achievement.all, by: \.metric)
+        let now = Date()
+        var found: [String: Date] = [:]
+        func reach(_ metric: Achievement.Metric, _ value: Double, _ at: Date) {
+            for a in byMetric[metric] ?? [] where found[a.id] == nil && value >= a.goal && at <= now {
+                found[a.id] = at
+            }
+        }
+
+        let cal = Calendar.current
+        struct Slice { let key: String; let day: Date; let hour: Int; let start: Date; let services: [String: Double]; let total: Double }
+        var slices: [Slice] = []
+        for (key, hours) in store.allDayHourServices {
+            guard let day = dayFormatter.date(from: key).map({ cal.startOfDay(for: $0) }) else { continue }
+            for (h, services) in hours.enumerated() where h < 24 {
+                let total = services.values.reduce(0, +)
+                guard total > 0, let start = cal.date(bySettingHour: h, minute: 0, second: 0, of: day) else { continue }
+                slices.append(Slice(key: key, day: day, hour: h, start: start, services: services, total: total))
+            }
+        }
+        slices.sort { $0.start < $1.start }
+
+        struct Run { var last: Date?; var first: Date?; var length = 0, longest = 0, gap = 0, count = 0 }
+        func extend(_ run: inout Run, _ day: Date) {
+            let step = run.last.flatMap { cal.dateComponents([.day], from: $0, to: day).day } ?? 0
+            run.length = run.last != nil && step == 1 ? run.length + 1 : 1
+            run.longest = max(run.longest, run.length)
+            if run.last != nil { run.gap = max(run.gap, step - 1) }
+            run.count += 1
+            if run.first == nil { run.first = day }
+            run.last = day
+        }
+
+        let steps = 60
+        var total = 0.0
+        var dayTotals: [String: Double] = [:]
+        var weekendTotals: [String: Double] = [:]
+        var dayParts: [String: [Double]] = [:]
+        var hourTotals = Array(repeating: 0.0, count: 24)
+        var sources: [String: Double] = [:]
+        var active = Run(), habit = Run()
+
+        for slice in slices {
+            let key = slice.key, h = slice.hour
+            // A Sunday adds to its Saturday's weekend.
+            let weekend: String? = switch cal.component(.weekday, from: slice.day) {
+            case 7: key
+            case 1: cal.date(byAdding: .day, value: -1, to: slice.day).map { dayFormatter.string(from: $0) }
+            default: nil
+            }
+            let shares = slice.services.filter { $0.value > 0 }.mapValues { $0 / slice.total }
+            let step = slice.total / Double(steps)
+            var hourSeconds = 0.0
+            for i in 1...steps {
+                let at = slice.start.addingTimeInterval(3600 * Double(i) / Double(steps))
+
+                total += step
+                reach(.totalSeconds, total, at)
+
+                let before = dayTotals[key] ?? 0
+                let today = before + step
+                dayTotals[key] = today
+                reach(.bestDaySeconds, today, at)
+                if before < activeDaySeconds, today >= activeDaySeconds {
+                    extend(&active, slice.day)
+                    reach(.longestStreak, Double(active.longest), at)
+                    reach(.activeDays, Double(active.count), at)
+                    reach(.longestGap, Double(active.gap), at)
+                }
+                if before < habitDaySeconds, today >= habitDaySeconds {
+                    extend(&habit, slice.day)
+                    reach(.longestHabit, Double(habit.longest), at)
+                }
+
+                if let weekend {
+                    weekendTotals[weekend, default: 0] += step
+                    reach(.bestWeekendSeconds, weekendTotals[weekend] ?? 0, at)
+                }
+
+                hourSeconds += step
+                if hourSeconds >= sessionHourSeconds {
+                    if h < 4 { reach(.nightOwl, 1, at) }
+                    if h == 5 || h == 6 { reach(.earlyBird, 1, at) }
+                }
+
+                var parts = dayParts[key] ?? [0, 0, 0, 0]
+                parts[h / 6] += step
+                dayParts[key] = parts
+                if parts.allSatisfy({ $0 >= dayPartSeconds }) { reach(.dawnToDusk, 1, at) }
+
+                hourTotals[h] += step
+                reach(.hoursCovered, Double(hourTotals.filter { $0 >= activeDaySeconds }.count), at)
+
+                for (source, share) in shares { sources[source, default: 0] += step * share }
+                reach(.serviceCount, Double(sources.filter { $0.key != Service.other && $0.value >= activeDaySeconds }.count), at)
+            }
+        }
+
+        if let first = active.first {
+            for a in byMetric[.daysSinceFirst] ?? [] where found[a.id] == nil {
+                if let when = cal.date(byAdding: .day, value: Int(a.goal), to: first), when <= now { found[a.id] = when }
+            }
+        }
+
+        // History logs a play a little before it counts, so when it has more rows
+        // than there are plays, the nth play is taken as the matching share of the
+        // way through it. A shorter history lost its oldest rows to retention.
+        let plays = store.allHistory.sorted { $0.at < $1.at }
+        let totalPlays = store.totalPlays
+        for a in byMetric[.totalPlays] ?? [] where totalPlays >= Int(a.goal) && !plays.isEmpty {
+            let goal = Int(a.goal)
+            let index = plays.count >= totalPlays
+                ? Int((Double(goal * plays.count) / Double(totalPlays)).rounded(.up)) - 1
+                : goal - 1 - (totalPlays - plays.count)
+            if plays.indices.contains(index) { found[a.id] = plays[index].at }
+        }
+        var trackPlays: [String: Int] = [:]
+        var artists = Set<String>()
+        for e in plays {
+            trackPlays[e.trackID, default: 0] += 1
+            reach(.topTrackPlays, Double(trackPlays[e.trackID] ?? 0), e.at)
+            reach(.trackCount, Double(trackPlays.count), e.at)
+            if !ArtistName.isUnknown(e.artist) { artists.insert(e.artist) }
+            reach(.artistCount, Double(artists.count), e.at)
+        }
+
+        for (i, at) in store.stats.favorites.values.map(\.addedAt).sorted().enumerated() {
+            reach(.favoriteCount, Double(i + 1), at)
+        }
+        return found
+    }
+
     /// Longest run of consecutive calendar days, and the longest stretch with none,
     /// among `keys` ("yyyy-MM-dd").
     static func runs(_ keys: [String]) -> (longest: Int, longestGap: Int, first: Date?) {
@@ -225,8 +366,13 @@ final class Achievements: ObservableObject {
 
     private static let unlockedKey = "achievementsUnlocked"
     private static let unseenKey = "achievementsUnseen"
+    private static let datedKey = "achievementsDated"
 
     private var unlocked: [String: Date]
+    /// Whether the badges have been dated from the listening yet (see `redate`).
+    private var dated: Bool
+    /// Whether they've been dated with other devices' listening loaded, this launch.
+    private var datedWithRemote = false
     private let store: Store
     private var cancellable: AnyCancellable?
 
@@ -235,6 +381,7 @@ final class Achievements: ObservableObject {
         let raw = UserDefaults.standard.dictionary(forKey: Self.unlockedKey) as? [String: Double] ?? [:]
         unlocked = raw.mapValues { Date(timeIntervalSince1970: $0) }
         unseen = Set(UserDefaults.standard.stringArray(forKey: Self.unseenKey) ?? [])
+        dated = UserDefaults.standard.bool(forKey: Self.datedKey)
         // objectWillChange fires before the change lands; the debounce both lets it
         // land and keeps a burst of ticks down to one evaluation.
         cancellable = store.objectWillChange
@@ -250,14 +397,16 @@ final class Achievements: ObservableObject {
     func evaluate(announce: Bool = true) -> [Achievement] {
         let metrics = AchievementMetrics.measure(store)
         var fresh: [Achievement] = []
-        statuses = Achievement.all.map { a in
-            let value = metrics[a.metric] ?? 0
-            if unlocked[a.id] == nil, value >= a.goal {
-                unlocked[a.id] = Date()
-                fresh.append(a)
-            }
-            return AchievementStatus(achievement: a, value: min(value, a.goal), unlockedAt: unlocked[a.id])
+        for a in Achievement.all where unlocked[a.id] == nil && (metrics[a.metric] ?? 0) >= a.goal {
+            unlocked[a.id] = Date()
+            fresh.append(a)
         }
+        let redating = !fresh.isEmpty || !dated || (store.hasRemote && !datedWithRemote)
+        if redating { redate() }
+        statuses = Achievement.all.map { a in
+            AchievementStatus(achievement: a, value: min(metrics[a.metric] ?? 0, a.goal), unlockedAt: unlocked[a.id])
+        }
+        if redating { save() }
         guard !fresh.isEmpty else { return [] }
         unseen.formUnion(fresh.map(\.id))
         save()
@@ -275,9 +424,22 @@ final class Achievements: ObservableObject {
         save()
     }
 
+    /// New badges, and once the badges that predate this, are dated from when the
+    /// listening actually reached them — again once other devices' listening has
+    /// loaded. Only ever moves a date earlier, so a badge kept through a reset holds
+    /// on to its original date.
+    private func redate() {
+        for (id, at) in AchievementMetrics.replayUnlockTimes(store) {
+            if let current = unlocked[id], at < current { unlocked[id] = at }
+        }
+        dated = true
+        if store.hasRemote { datedWithRemote = true }
+    }
+
     private func save() {
         UserDefaults.standard.set(unlocked.mapValues { $0.timeIntervalSince1970 }, forKey: Self.unlockedKey)
         UserDefaults.standard.set(Array(unseen), forKey: Self.unseenKey)
+        UserDefaults.standard.set(dated, forKey: Self.datedKey)
     }
 }
 

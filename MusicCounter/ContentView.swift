@@ -60,12 +60,14 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: sync.sentNotice)
+        .overlay { SyncSplash() }
+        .newPlaylistPrompt()
         .sheet(isPresented: $showPlayer) {
             NowPlayingView()
                 .presentationDragIndicator(.hidden)
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { tracker.reconcile() }
+            if phase == .active { tracker.becameActive() }
             // Leaving the app: upload now rather than waiting out the debounce.
             if phase == .background {
                 sync.push()

@@ -2,8 +2,6 @@ import SwiftUI
 
 struct HistoryView: View {
     @EnvironmentObject var store: Store
-    @EnvironmentObject var tracker: Tracker
-    @Environment(\.openURL) private var openURL
     @AppStorage(Retention.storageKey) private var retention = Retention.forever.rawValue
     @State private var confirmClear = false
     @State private var query = ""
@@ -40,31 +38,9 @@ struct HistoryView: View {
                 ForEach(sections, id: \.day) { section in
                     Section {
                         ForEach(section.entries) { e in
-                            HStack(spacing: 12) {
-                                ArtworkView(id: e.trackID, size: 42, remoteURL: e.source.flatMap {
-                                    WebLink.thumbnail(source: $0, key: e.trackID, artwork: e.artwork)
-                                })
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(e.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                                    Text(e.source.map { "\(e.artist) · \(WebLink.label($0))" } ?? e.artist)
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer()
+                            PlayRow(entry: e) {
                                 Text(e.at.formatted(date: .omitted, time: .shortened))
                                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                            }
-                            .contentShape(Rectangle())
-                            .contextMenu {
-                                PlayOnBrowserItems(song: BrowserSong(source: e.source, key: e.trackID, title: e.title, artist: e.artist))
-                            }
-                            .onTapGesture {
-                                if let source = e.source {
-                                    if let url = WebLink.track(source: source, key: e.trackID, title: e.title, artist: e.artist) {
-                                        openURL(url)
-                                    }
-                                } else {
-                                    tracker.play(id: e.trackID)
-                                }
                             }
                         }
                     } header: {
@@ -76,7 +52,6 @@ struct HistoryView: View {
                     }
                 }
             }
-            .syncSkeleton()
             .navigationTitle("History")
             .searchable(text: $query, prompt: "Songs, artists or services")
             .pageBottomMargin()
@@ -94,6 +69,46 @@ struct HistoryView: View {
             }
             .confirmationDialog("Clear the listening history?", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("Clear", role: .destructive) { store.clearHistory() }
+            }
+        }
+    }
+}
+
+/// One played song: artwork, title, artist and service. Tapping opens it where it was
+/// played (or plays it from the library); long-press offers playing it on the computer.
+struct PlayRow<Trailing: View>: View {
+    @EnvironmentObject var tracker: Tracker
+    @Environment(\.openURL) private var openURL
+    let entry: HistoryEntry
+    var artworkSize: CGFloat = 42
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        let e = entry
+        HStack(spacing: 12) {
+            ArtworkView(id: e.trackID, size: artworkSize, remoteURL: e.source.flatMap {
+                WebLink.thumbnail(source: $0, key: e.trackID, artwork: e.artwork)
+            })
+            VStack(alignment: .leading, spacing: 2) {
+                Text(e.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(e.source.map { "\(e.artist) · \(WebLink.label($0))" } ?? e.artist)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            trailing()
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            PlayOnBrowserItems(song: BrowserSong(source: e.source, key: e.trackID, title: e.title, artist: e.artist))
+            AddToPlaylistMenu(track: PlaylistTrack(source: e.source, key: e.trackID, title: e.title, artist: e.artist))
+        }
+        .onTapGesture {
+            if let source = e.source {
+                if let url = WebLink.track(source: source, key: e.trackID, title: e.title, artist: e.artist) {
+                    openURL(url)
+                }
+            } else {
+                tracker.play(id: e.trackID)
             }
         }
     }

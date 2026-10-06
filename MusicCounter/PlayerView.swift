@@ -217,6 +217,7 @@ struct NowPlayingView: View {
                             Text(artist).font(.body).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                         }
                         Spacer(minLength: 0)
+                        LibraryAddToPlaylistButton(item: item)
                         FavoriteButton(id: id, title: title, artist: artist)
                     }
 
@@ -309,6 +310,8 @@ private struct BrowserNowPlayingView: View {
                                 .font(.body).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                         }
                         Spacer(minLength: 0)
+                        BrowserAddToPlaylistButton(track: PlaylistTrack(
+                            source: track.source, id: track.id, title: title, artist: track.artist))
                         FavoriteButton(id: track.key, title: title, artist: track.artist, source: track.source)
                     }
 
@@ -319,6 +322,14 @@ private struct BrowserNowPlayingView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .background(Capsule().fill(.white.opacity(0.12)))
+
+                    // Previous and next step through the playlist while one plays.
+                    if let playlist = track.playlist {
+                        Label(playlist.label, systemImage: "music.note.list")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(1)
+                    }
 
                     HStack {
                         Spacer()
@@ -542,6 +553,88 @@ private struct ModeButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityValue(on ? "On" : "Off")
+    }
+}
+
+/// The round icon the full player's add-to-playlist buttons wear, matching the star beside them.
+private struct PlayerCircleIcon: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(Color.white.opacity(0.8))
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(.white.opacity(0.12)))
+    }
+}
+
+/// Adds the phone's own (downloaded) song to one of the Music app playlists, through the
+/// same sheet the Library uses, which can also make a new one.
+private struct LibraryAddToPlaylistButton: View {
+    let item: MPMediaItem
+    @State private var adding = false
+
+    var body: some View {
+        Button {
+            haptic()
+            adding = true
+        } label: {
+            PlayerCircleIcon(symbol: "text.badge.plus")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add to Playlist")
+        .sheet(isPresented: $adding) {
+            AddToPlaylistSheet(items: [item])
+                .preferredColorScheme(nil)
+        }
+    }
+}
+
+/// Adds the browser's song to one of the YouTube & Spotify playlists, or to a new one.
+/// A tick on the icon says it's already in at least one.
+private struct BrowserAddToPlaylistButton: View {
+    @EnvironmentObject var sync: Sync
+    let track: PlaylistTrack
+    @State private var naming = false
+    @State private var newName = ""
+
+    var body: some View {
+        let inAny = sync.playlists.contains { $0.contains(track) }
+        Menu {
+            Section("Add to a Playlist") {
+                ForEach(sync.playlists) { playlist in
+                    let has = playlist.contains(track)
+                    Button {
+                        haptic()
+                        sync.add(track, to: playlist.id)
+                    } label: {
+                        Label(playlist.name, systemImage: has ? "checkmark" : "music.note.list")
+                    }
+                    .disabled(has)
+                }
+            }
+            Button {
+                newName = ""
+                naming = true
+            } label: {
+                Label("New Playlist…", systemImage: "plus")
+            }
+            .disabled(sync.playlists.count >= WebPlaylist.maxPlaylists)
+        } label: {
+            PlayerCircleIcon(symbol: inAny ? "text.badge.checkmark" : "text.badge.plus")
+        }
+        .accessibilityLabel("Add to a Playlist")
+        .alert("New Playlist", isPresented: $naming) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                haptic()
+                sync.createPlaylist(named: newName, with: track)
+            }
+        } message: {
+            Text("With \(track.title) as its first song.")
+        }
     }
 }
 

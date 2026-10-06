@@ -6,10 +6,9 @@ struct HomeView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var tracker: Tracker
     @EnvironmentObject var sync: Sync
-    @AppStorage("goalMinutes") private var goalMinutes = 60
     @AppStorage(Retention.storageKey) private var retention = Retention.forever.rawValue
     @State private var confirmReset = false
-    @State private var shareImage: Image?
+    @State private var sharing = false
     @State private var sortByPlays = false
     @State private var servicesToday = false
 
@@ -28,7 +27,6 @@ struct HomeView: View {
                         favoritesCard
                         artistsCard
                     }
-                    .syncSkeleton()
                 }
                 .padding(.horizontal, 16)
             }
@@ -38,19 +36,13 @@ struct HomeView: View {
             .navigationTitle("Music Counter")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if let shareImage {
-                        ShareLink(item: shareImage, preview: SharePreview("My listening", image: shareImage)) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
+                    Button { sharing = true } label: {
+                        Image(systemName: "square.and.arrow.up")
                     }
+                    .accessibilityLabel("Share your listening")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("Daily goal", selection: $goalMinutes) {
-                            ForEach([30, 60, 120, 180, 240], id: \.self) { m in
-                                Text(m < 60 ? "\(m) min" : "\(m / 60) h").tag(m)
-                            }
-                        }
                         Picker("Keep history", selection: $retention) {
                             ForEach(Retention.allCases) { r in Text(r.label).tag(r.rawValue) }
                         }
@@ -64,7 +56,7 @@ struct HomeView: View {
             .confirmationDialog("Erase this phone's stats? Favorites, achievements and other devices' stats are kept.", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Erase", role: .destructive) { store.reset() }
             }
-            .task(id: store.totalSeconds) { renderShareImage() }
+            .sheet(isPresented: $sharing) { ShareSheet() }
         }
     }
 
@@ -111,7 +103,8 @@ struct HomeView: View {
     }
 
     private var heroCard: some View {
-        let goal = Double(goalMinutes) * 60
+        // The goal grows with you: one hour more than you listened yesterday.
+        let goal = (store.lastDays(2).first?.seconds ?? 0) + 3600
         let today = store.todaySeconds
         return Card {
             HStack(spacing: 20) {
@@ -127,6 +120,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Daily goal").font(.caption).foregroundStyle(.secondary)
                     Text(formatDuration(goal)).font(.title3.bold())
+                    Text("Yesterday + 1 h").font(.caption2).foregroundStyle(.secondary)
                     if today >= goal {
                         Label("Goal reached", systemImage: "checkmark.circle.fill")
                             .font(.subheadline).foregroundStyle(.green)
@@ -186,7 +180,8 @@ struct HomeView: View {
                 Text("All time").tag(false)
             }
             .pickerStyle(.segmented)
-            ServiceBreakdown(services: servicesToday ? store.services(lastDays: 1) : store.services)
+            ServiceBreakdown(services: servicesToday ? store.services(lastDays: 1) : store.services,
+                             key: servicesToday ? "today" : "all")
         }
     }
 
@@ -265,12 +260,6 @@ struct HomeView: View {
             }
         }
     }
-
-    private func renderShareImage() {
-        let renderer = ImageRenderer(content: ShareCardView(store: store).environment(\.colorScheme, .dark))
-        renderer.scale = 3
-        if let ui = renderer.uiImage { shareImage = Image(uiImage: ui) }
-    }
 }
 
 struct DaysChart: View {
@@ -278,6 +267,7 @@ struct DaysChart: View {
     var weekdayLabels = false
     /// When set, tapping a column selects its day (tapping it again clears it).
     var selection: Binding<Date?>? = nil
+    @State private var grown = false
 
     private struct Segment: Identifiable {
         var date: Date
@@ -292,10 +282,12 @@ struct DaysChart: View {
         }
         let first = days.first?.date ?? Date()
         let end = Calendar.current.date(byAdding: .day, value: 1, to: days.last?.date ?? first) ?? first
+        // Fixed while the columns grow, or the axis would rescale under them.
+        let peak = days.map { $0.seconds / 60 }.max() ?? 0
         Chart(segments) { seg in
             BarMark(
                 x: .value("Day", seg.date, unit: .day),
-                y: .value("Minutes", seg.seconds / 60)
+                y: .value("Minutes", grown ? seg.seconds / 60 : 0)
             )
             .cornerRadius(2)
             .foregroundStyle(by: .value("Service", Service.label(seg.source)))
@@ -303,6 +295,8 @@ struct DaysChart: View {
         }
         .serviceColors(segments.map(\.source))
         .chartXScale(domain: first...end)
+        .chartYScale(domain: 0...Swift.max(peak, 1))
+        .growIn($grown, key: "\(first.timeIntervalSince1970)-\(days.count)")
         .chartOverlay { proxy in
             if let selection {
                 GeometryReader { geo in
@@ -322,6 +316,11 @@ struct DaysChart: View {
                 AxisMarks(values: .stride(by: .day)) { _ in
                     AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
                 }
+            } else if days.count > 90 {
+                // A year of days: label every other month, a day label would crowd.
+                AxisMarks(values: .stride(by: .month, count: 2)) { _ in
+                    AxisValueLabel(format: .dateTime.month(.abbreviated))
+                }
             } else {
                 AxisMarks(values: .stride(by: .day, count: days.count > 35 ? 14 : 7)) { _ in
                     AxisValueLabel(format: .dateTime.day().month(.abbreviated))
@@ -339,41 +338,5 @@ struct DaysChart: View {
     private func opacity(_ date: Date) -> Double {
         if let selected = selection?.wrappedValue { return date == selected ? 1 : 0.3 }
         return Calendar.current.isDateInToday(date) ? 1 : 0.7
-    }
-}
-
-/// The picture behind the Share button.
-struct ShareCardView: View {
-    let store: Store
-
-    var body: some View {
-        let all = store.allTracks
-        let top = all.sorted { $0.seconds > $1.seconds }.prefix(3)
-        VStack(alignment: .leading, spacing: 14) {
-            Text("My listening").font(.headline).foregroundStyle(.white.opacity(0.7))
-            Text(formatDuration(store.totalSeconds)).font(.system(size: 54, weight: .heavy))
-                .foregroundStyle(Theme.gradient)
-            Text("\(store.totalPlays) plays · \(all.count) songs · today \(formatDuration(store.todaySeconds))")
-                .font(.subheadline).foregroundStyle(.white.opacity(0.7))
-            if !top.isEmpty {
-                Divider().overlay(.white.opacity(0.2))
-                ForEach(Array(top.enumerated()), id: \.element.id) { i, t in
-                    HStack {
-                        Text("\(i + 1)").bold().frame(width: 20)
-                        VStack(alignment: .leading) {
-                            Text(t.title).lineLimit(1)
-                            Text(t.artist).font(.caption).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
-                        }
-                        Spacer()
-                        Text(formatDuration(t.seconds)).monospacedDigit()
-                    }
-                    .foregroundStyle(.white)
-                }
-            }
-            Text("Music Counter").font(.caption.bold()).foregroundStyle(.white.opacity(0.5))
-        }
-        .padding(28)
-        .frame(width: 380, alignment: .leading)
-        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
     }
 }

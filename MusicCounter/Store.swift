@@ -296,11 +296,12 @@ final class Store: ObservableObject {
     }
 
     /// Listening per day for the last `n` days, oldest first, ending today.
-    func lastDays(_ n: Int) -> [DayListening] {
+    /// `n` days ending `endingDaysAgo` days before today, oldest first.
+    func lastDays(_ n: Int, endingDaysAgo: Int = 0) -> [DayListening] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         return (0..<n).reversed().compactMap { offset in
-            guard let d = cal.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            guard let d = cal.date(byAdding: .day, value: -(offset + endingDaysAgo), to: today) else { return nil }
             return DayListening(date: d, services: dayServices(Self.dayFormatter.string(from: d)))
         }
     }
@@ -322,12 +323,27 @@ final class Store: ObservableObject {
         return total
     }
 
+    /// The earliest day with any listening recorded, on any device.
+    var firstListeningDay: Date? {
+        allDayTotals.filter { $0.value >= 1 }.keys.min().flatMap { Self.dayFormatter.date(from: $0) }
+    }
+
     /// Seconds listened per day, every device, keyed "yyyy-MM-dd".
     var allDayTotals: [String: Double] {
         var out: [String: Double] = [:]
         for key in Set(stats.daily.keys).union(remoteDaily.keys) { out[key] = daySeconds(key) }
         return out
     }
+
+    /// Each recorded day's 24 hours of service -> seconds, every device, keyed "yyyy-MM-dd".
+    var allDayHourServices: [String: [[String: Double]]] {
+        var out: [String: [[String: Double]]] = [:]
+        for key in Set(stats.hourly.keys).union(remoteHourly.keys) { out[key] = dayHourServices(key) }
+        return out
+    }
+
+    /// Whether listening from another device has been loaded.
+    var hasRemote: Bool { remoteTotal > 0 || !remoteHistory.isEmpty }
 
     /// Each recorded day's 24 hourly totals, every device.
     var allDayHours: [[Double]] {
@@ -346,10 +362,20 @@ final class Store: ObservableObject {
     }
 
     /// Listening per service over the last `n` days (today included), most listened first.
-    func services(lastDays n: Int) -> [ServiceTotal] {
+    /// Time per service over the window, with plays counted from the history
+    /// (which the retention setting may have trimmed for older windows).
+    func services(lastDays n: Int, endingDaysAgo: Int = 0) -> [ServiceTotal] {
+        let days = lastDays(n, endingDaysAgo: endingDaysAgo)
         var seconds: [String: Double] = [:]
-        for day in lastDays(n) { seconds.merge(day.services, uniquingKeysWith: +) }
-        return Self.ranked(seconds, plays: [:])
+        for day in days { seconds.merge(day.services, uniquingKeysWith: +) }
+        var plays: [String: Int] = [:]
+        if let from = days.first?.date, let last = days.last?.date,
+           let until = Calendar.current.date(byAdding: .day, value: 1, to: last) {
+            for entry in allHistory where entry.at >= from && entry.at < until {
+                plays[entry.source ?? "ios", default: 0] += 1
+            }
+        }
+        return Self.ranked(seconds, plays: plays)
     }
 
     private static func ranked(_ seconds: [String: Double], plays: [String: Int]) -> [ServiceTotal] {

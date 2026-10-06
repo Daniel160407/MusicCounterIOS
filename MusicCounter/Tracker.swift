@@ -23,6 +23,7 @@ final class Tracker: ObservableObject {
     private var progress: Double = 0
     private var awarded = false
     private var lastPlaybackTime: TimeInterval = 0
+    private var currentDuration: TimeInterval = 0
 
     init(store: Store) {
         self.store = store
@@ -52,28 +53,60 @@ final class Tracker: ObservableObject {
         nc.addObserver(forName: .MPMusicPlayerControllerPlaybackStateDidChange, object: player, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshNowPlaying() }
         }
-        refreshNowPlaying()
         lastTick = Date()
+        refreshNowPlaying()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
     }
 
-    private func refreshNowPlaying() {
+    /// Back in the foreground: the player may have moved on while iOS had the app suspended
+    /// (e.g. songs advancing on the lock screen), and its notifications aren't replayed.
+    func becameActive() {
+        if timer != nil { refreshNowPlaying() }
+        reconcile()
+    }
+
+    /// Seconds the app couldn't watch the player (suspended in the background); 0 while it runs.
+    private var unseenTime: TimeInterval {
+        let gap = Date().timeIntervalSince(lastTick) - 1
+        return gap > 2 ? gap : 0
+    }
+
+    private func refreshNowPlaying(unseen: TimeInterval? = nil) {
         nowPlaying = player.nowPlayingItem
         isPlaying = player.playbackState == .playing
         shuffleOn = player.shuffleMode != .off
         repeatMode = player.repeatMode == .default ? .none : player.repeatMode
         let id = nowPlaying.map { String($0.persistentID) }
         if id != currentID {
+            let unseen = unseen ?? unseenTime
+            // Left a song that already earned a play before its end, while we were watching:
+            // Music won't add to its playCount, so the next reconcile mustn't wait for that.
+            if let previous = currentID, awarded, unseen == 0,
+               currentDuration > 0, lastPlaybackTime < currentDuration - 5 {
+                dropPendingLive(previous)
+            }
             currentID = id
-            progress = 0
+            currentDuration = nowPlaying?.playbackDuration ?? 0
+            let pos = playbackTime
+            // A song that started while the app was suspended is already part way through;
+            // that listening counts toward its half, up to the time we couldn't see.
+            progress = min(pos, unseen)
             awarded = false
-            lastPlaybackTime = player.currentPlaybackTime
+            lastPlaybackTime = pos
+        }
+    }
+
+    private func dropPendingLive(_ id: String) {
+        store.mutate { s in
+            guard let n = s.pendingLive[id] else { return }
+            if n > 1 { s.pendingLive[id] = n - 1 } else { s.pendingLive[id] = nil }
         }
     }
 
     private func tick() {
+        let unseen = unseenTime
         let now = Date()
         let elapsed = min(now.timeIntervalSince(lastTick), 2)
         lastTick = now
@@ -83,12 +116,14 @@ final class Tracker: ObservableObject {
               !item.isCloudItem else { return }
 
         let id = String(item.persistentID)
-        if id != currentID { refreshNowPlaying() }
+        if id != currentID { refreshNowPlaying(unseen: unseen) }
 
-        // Replayed from the start after earning a play: start a fresh count.
-        let pos = player.currentPlaybackTime
+        // Replayed from the start after earning a play: start a fresh count, including any
+        // of the new run that played while the app was suspended (repeat one on the lock screen).
+        let pos = playbackTime
         if awarded && pos < lastPlaybackTime - 3 {
-            progress = 0
+            let wrapped = unseen - max(item.playbackDuration - lastPlaybackTime, 0)
+            progress = min(pos, max(wrapped, 0))
             awarded = false
         }
         lastPlaybackTime = pos
@@ -190,6 +225,7 @@ final class Tracker: ObservableObject {
 
         var newSnapshot = store.stats.snapshot
         var pending = store.stats.pendingLive
+        let playingID = player.nowPlayingItem.map { String($0.persistentID) }
 
         for item in items where !item.isCloudItem {
             let id = String(item.persistentID)
@@ -200,7 +236,12 @@ final class Tracker: ObservableObject {
             guard !firstRun, let previous = store.stats.snapshot[id] else { continue }
 
             let delta = count - previous
-            guard delta > 0 else { continue }
+            guard delta > 0 else {
+                // Counted live but skipped before its end, so Music never counted it. Forget it,
+                // or it would swallow the next play of this song made with the app closed.
+                if id != playingID { pending[id] = nil }
+                continue
+            }
 
             let alreadyLive = min(pending[id] ?? 0, delta)
             pending[id] = (pending[id] ?? 0) - alreadyLive

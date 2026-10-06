@@ -8,15 +8,18 @@ import GoogleSignIn
 /// Syncs with the browser extension (and any other device) through Firestore, using the
 /// same layout as the extension's sync.js:
 ///
-///     users/{uid}                              historyRetention, settingsUpdatedAt, favoritesUpdatedAt
+///     users/{uid}                              historyRetention, settingsUpdatedAt, favoritesUpdatedAt,
+///                                              playlistsUpdatedAt
 ///     users/{uid}/favorites/{key}              key, id, title, artist, source, addedAt
+///     users/{uid}/playlists/{id}               id, name, tracks [{ source, id, title, artist }], createdAt, updatedAt
 ///     users/{uid}/devices/{deviceID}           platform, name, updatedAt, total, firstSeen, sources, parts
 ///     users/{uid}/devices/{deviceID}/parts/{n} json   (tracks, artists, days-YYYY, history-YYYY-MM-N)
 ///     users/{uid}/live/{deviceID}              what a browser is playing (see RemoteTrack)
-///     users/{uid}/commands/{deviceID}          command: { id, action, at, value? }, the phone's presses for that browser
+///     users/{uid}/commands/{deviceID}          command: { id, action, at, value? }, the phone's presses for that browser;
+///                                              action "playlist" carries playlistId, index
 ///
 /// Each device writes only its own document; `parts` maps part names to content hashes so
-/// only changed parts are uploaded or fetched. Favorites and the retention setting are shared.
+/// only changed parts are uploaded or fetched. Favorites, playlists and the retention setting are shared.
 @MainActor
 final class Sync: ObservableObject {
     @Published private(set) var email: String?
@@ -31,6 +34,10 @@ final class Sync: ObservableObject {
     @Published private(set) var browsers: [Browser] = []
     /// A short confirmation after a song was sent to a browser, shown as a banner.
     @Published var sentNotice: String?
+    /// Playlists shared with the extension, by name; empty while signed out.
+    @Published private(set) var playlists: [WebPlaylist] = []
+    /// Set to ask for a new playlist's name; ContentView shows the prompt (see NewPlaylistPrompt).
+    @Published var newPlaylist: NewPlaylistRequest?
 
     /// False until GoogleService-Info.plist is added to the app.
     static var isConfigured: Bool { FirebaseApp.app() != nil }
@@ -62,6 +69,8 @@ final class Sync: ObservableObject {
 
     init(store: Store) {
         self.store = store
+        // Set before the first frame, so a signed-in launch opens on the splash rather than flashing empty stats.
+        isLoading = Self.isConfigured && Auth.auth().currentUser != nil
     }
 
     func start() {
@@ -116,6 +125,7 @@ final class Sync: ObservableObject {
         liveChanged([])
         browserDevices = [:]
         browsers = []
+        playlists = []
         store.setRemote([:])
         otherDevices = []
         email = user?.email
@@ -151,6 +161,15 @@ final class Sync: ObservableObject {
                     source: d["source"] as? String)
             }
             Task { @MainActor in self?.store.replaceFavorites(favorites) }
+        })
+
+        listeners.append(user.collection("playlists").addSnapshotListener { [weak self] snapshot, _ in
+            guard let snapshot else { return }
+            let list = snapshot.documents.compactMap { WebPlaylist(data: $0.data()) }
+                .sorted { ($0.name.localizedLowercase, $0.createdAt) < ($1.name.localizedLowercase, $1.createdAt) }
+            Task { @MainActor in
+                if self?.playlists != list { self?.playlists = list }
+            }
         })
 
         listeners.append(user.collection("live").addSnapshotListener { [weak self] snapshot, _ in
@@ -295,6 +314,22 @@ final class Sync: ObservableObject {
             "command": [
                 "id": UUID().uuidString, "action": "open", "at": Self.now,
                 "source": song.source, "trackId": song.trackID, "title": song.title, "artist": song.artist,
+            ] as [String: Any],
+        ]) { [weak self] err in
+            guard let err else { return }
+            Task { @MainActor in self?.error = err.localizedDescription }
+        }
+        sentNotice = "Sent to \(browser.name)"
+    }
+
+    /// Asks a browser to play a playlist from the song at `index` (0-based); it then plays
+    /// the rest in order, each in its own service's tab.
+    func play(_ playlist: WebPlaylist, from index: Int = 0, on browser: Browser) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        db.collection("users").document(uid).collection("commands").document(browser.id).setData([
+            "command": [
+                "id": UUID().uuidString, "action": "playlist", "at": Self.now,
+                "playlistId": playlist.id, "index": index,
             ] as [String: Any],
         ]) { [weak self] err in
             guard let err else { return }
@@ -467,6 +502,67 @@ final class Sync: ObservableObject {
         }
         batch.setData(["favoritesUpdatedAt": Self.now], forDocument: db.collection("users").document(uid), merge: true)
         batch.commit()
+    }
+
+    // MARK: - Playlists
+
+    /// Creates a playlist, optionally with its first song; nil when signed out or at the limit.
+    @discardableResult
+    func createPlaylist(named name: String, with track: PlaylistTrack? = nil) -> WebPlaylist? {
+        guard playlists.count < WebPlaylist.maxPlaylists else { return nil }
+        let playlist = WebPlaylist(name: name, tracks: track.map { [$0] } ?? [])
+        guard write(playlist) else { return nil }
+        return playlist
+    }
+
+    /// Applies `change` to the stored playlist and writes the whole of it back, as the
+    /// extension does. Returns false when there was nothing to change.
+    @discardableResult
+    func updatePlaylist(_ id: String, _ change: (inout WebPlaylist) -> Void) -> Bool {
+        guard let at = playlists.firstIndex(where: { $0.id == id }) else { return false }
+        var playlist = playlists[at]
+        change(&playlist)
+        playlist.name = WebPlaylist.clean(playlist.name)
+        playlist.tracks = Array(playlist.tracks.prefix(WebPlaylist.maxTracks))
+        guard playlist != playlists[at] else { return false }
+        playlist.updatedAt = Self.now
+        return write(playlist)
+    }
+
+    /// Adds a song unless the playlist already has it or is full.
+    @discardableResult
+    func add(_ track: PlaylistTrack, to id: String) -> Bool {
+        updatePlaylist(id) { p in
+            if !p.contains(track) && p.tracks.count < WebPlaylist.maxTracks { p.tracks.append(track) }
+        }
+    }
+
+    func deletePlaylist(_ id: String) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        playlists.removeAll { $0.id == id }
+        let batch = db.batch()
+        batch.deleteDocument(db.collection("users").document(uid).collection("playlists").document(id))
+        batch.setData(["playlistsUpdatedAt": Self.now], forDocument: db.collection("users").document(uid), merge: true)
+        commitPlaylists(batch)
+    }
+
+    private func write(_ playlist: WebPlaylist) -> Bool {
+        guard let uid = Auth.auth().currentUser?.uid else { return false }
+        // Shown at once; the listener confirms it a moment later.
+        if let at = playlists.firstIndex(where: { $0.id == playlist.id }) { playlists[at] = playlist }
+        else { playlists.append(playlist) }
+        let batch = db.batch()
+        batch.setData(playlist.data, forDocument: db.collection("users").document(uid).collection("playlists").document(playlist.id))
+        batch.setData(["playlistsUpdatedAt": Self.now], forDocument: db.collection("users").document(uid), merge: true)
+        commitPlaylists(batch)
+        return true
+    }
+
+    private func commitPlaylists(_ batch: WriteBatch) {
+        batch.commit { [weak self] err in
+            guard let err else { return }
+            Task { @MainActor in self?.error = err.localizedDescription }
+        }
     }
 
     /// Shares a retention change made on this phone.

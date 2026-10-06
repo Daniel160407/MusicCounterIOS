@@ -4,10 +4,13 @@ import Charts
 struct InsightsView: View {
     @EnvironmentObject var store: Store
     @State private var rangeDays = 7
+    /// Whole ranges stepped back from the one ending today, 0 = current.
+    @State private var periodsAgo = 0
     @State private var daysAgo = 0
     @State private var allTime = false
     @State private var selectedDay: Date?
     @State private var selectedHour: Int?
+    @State private var hoursGrown = false
 
     var body: some View {
         NavigationStack {
@@ -18,7 +21,6 @@ struct InsightsView: View {
                     servicesCard
                     hoursCard
                 }
-                .syncSkeleton()
                 .padding(.horizontal, 16)
             }
             .pageBottomMargin()
@@ -28,16 +30,29 @@ struct InsightsView: View {
     }
 
     private var daysCard: some View {
-        let days = store.lastDays(rangeDays)
+        let days = store.lastDays(rangeDays, endingDaysAgo: periodsAgo * rangeDays)
         let total = days.reduce(0) { $0 + $1.seconds }
         let active = days.filter { $0.seconds >= 1 }.count
+        let atStart = days.first.map { first in store.firstListeningDay.map { first.date <= $0 } ?? true } ?? true
         return Card(title: "Days you listened") {
             Picker("Range", selection: $rangeDays) {
                 Text("7 days").tag(7)
                 Text("30 days").tag(30)
-                Text("90 days").tag(90)
+                Text("9 months").tag(270)
             }
             .pickerStyle(.segmented)
+
+            HStack {
+                Button { periodsAgo += 1 } label: { Image(systemName: "chevron.left") }
+                    .disabled(atStart)
+                    .accessibilityLabel("Previous period")
+                Spacer()
+                Text(periodLabel(days)).font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { periodsAgo -= 1 } label: { Image(systemName: "chevron.right") }
+                    .disabled(periodsAgo == 0)
+                    .accessibilityLabel("Next period")
+            }
 
             DaysChart(days: days, selection: $selectedDay).frame(height: 170)
 
@@ -60,12 +75,26 @@ struct InsightsView: View {
             }
             .font(.caption).foregroundStyle(.secondary)
         }
-        .onChange(of: rangeDays) { _ in selectedDay = nil }
+        .onChange(of: rangeDays) { _ in selectedDay = nil; periodsAgo = 0 }
+        .onChange(of: periodsAgo) { _ in selectedDay = nil }
+    }
+
+    private func periodLabel(_ days: [DayListening]) -> String {
+        if periodsAgo == 0 {
+            return rangeDays == 270 ? "Last 9 months" : "Last \(rangeDays) days"
+        }
+        guard let first = days.first?.date, let last = days.last?.date else { return "" }
+        let style: Date.FormatStyle = rangeDays == 270
+            ? .dateTime.month(.abbreviated).year()
+            : .dateTime.day().month(.abbreviated)
+        return "\(first.formatted(style)) – \(last.formatted(style))"
     }
 
     private var servicesCard: some View {
-        Card(title: "By service · last \(rangeDays) days") {
-            ServiceBreakdown(services: store.services(lastDays: rangeDays))
+        let days = store.lastDays(rangeDays, endingDaysAgo: periodsAgo * rangeDays)
+        return Card(title: "By service · \(periodsAgo == 0 ? "last \(rangeDays) days" : periodLabel(days))") {
+            ServiceBreakdown(services: store.services(lastDays: rangeDays, endingDaysAgo: periodsAgo * rangeDays),
+                             key: "\(rangeDays)-\(periodsAgo)")
         }
     }
 
@@ -107,7 +136,7 @@ struct InsightsView: View {
             Chart(segments) { seg in
                 BarMark(
                     x: .value("Hour", seg.hour),
-                    y: .value("Minutes", seg.seconds / 60)
+                    y: .value("Minutes", hoursGrown ? seg.seconds / 60 : 0)
                 )
                 .cornerRadius(2)
                 .foregroundStyle(by: .value("Service", Service.label(seg.source)))
@@ -115,6 +144,8 @@ struct InsightsView: View {
             }
             .serviceColors(segments.map(\.source))
             .chartXScale(domain: -0.5...23.5)
+            .chartYScale(domain: 0...max((peak?.element ?? 0) / 60, 1))
+            .growIn($hoursGrown, key: "\(allTime)-\(daysAgo)")
             .chartOverlay { proxy in
                 GeometryReader { geo in
                     Rectangle().fill(.clear).contentShape(Rectangle())
@@ -177,9 +208,7 @@ private struct ColumnDetail: View {
 
     private struct Song: Identifiable {
         var id: String
-        var title: String
-        var artist: String
-        var source: String
+        var entry: HistoryEntry
         var count: Int
     }
 
@@ -220,13 +249,7 @@ private struct ColumnDetail: View {
                 Text("\(plays.count) \(plays.count == 1 ? "play" : "plays")")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(shown) { song in
-                    HStack(spacing: 8) {
-                        Circle().fill(Service.color(song.source)).frame(width: 6, height: 6)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(song.title).font(.caption.weight(.medium)).lineLimit(1)
-                            Text(song.artist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
+                    PlayRow(entry: song.entry, artworkSize: 36) {
                         if song.count > 1 {
                             Text("\(song.count)×").font(.caption).foregroundStyle(.secondary)
                         }
@@ -247,10 +270,9 @@ private struct ColumnDetail: View {
     private static func songs(_ plays: [HistoryEntry]) -> [Song] {
         var map: [String: Song] = [:]
         for p in plays {
-            let source = p.source ?? "ios"
-            let key = "\(source)|\(p.trackID)"
-            map[key, default: Song(id: key, title: p.title, artist: p.artist, source: source, count: 0)].count += 1
+            let key = "\(p.source ?? "ios")|\(p.trackID)"
+            map[key, default: Song(id: key, entry: p, count: 0)].count += 1
         }
-        return map.values.sorted { ($0.count, $1.title) > ($1.count, $0.title) }
+        return map.values.sorted { ($0.count, $1.entry.title) > ($1.count, $0.entry.title) }
     }
 }

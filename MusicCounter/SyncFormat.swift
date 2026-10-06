@@ -268,6 +268,8 @@ struct RemoteTrack: Equatable {
     var volume: Double?
     /// 2 where the extension can boost the page past 100% (YouTube, YouTube Music), else 1.
     let maxVolume: Double
+    /// The playlist this song is part of, while the browser is playing one.
+    let playlist: PlaylistProgress?
     let updatedAt: Date
 
     init?(deviceID: String, data: [String: Any]) {
@@ -285,6 +287,7 @@ struct RemoteTrack: Equatable {
         let maxVolume = min(max(number(track["maxVolume"]) ?? 1, 1), 2)
         self.maxVolume = maxVolume
         volume = number(track["volume"]).map { min(max($0, 0), maxVolume) }
+        playlist = (track["playlist"] as? [String: Any]).flatMap(PlaylistProgress.init)
         updatedAt = date(data["updatedAt"])
     }
 
@@ -296,6 +299,161 @@ struct RemoteTrack: Equatable {
     var key: String { "\(source):\(id.isEmpty ? title : id)" }
 
     var thumbnail: URL? { WebLink.thumbnail(source: source, key: key, artwork: artwork) }
+}
+
+/// How far a browser is through a playlist: `index` is 0-based.
+struct PlaylistProgress: Equatable {
+    let id: String
+    let name: String
+    let index: Int
+    let count: Int
+
+    init?(_ data: [String: Any]) {
+        guard let id = data["id"] as? String else { return nil }
+        self.id = id
+        name = data["name"] as? String ?? ""
+        index = (data["index"] as? NSNumber)?.intValue ?? 0
+        count = (data["count"] as? NSNumber)?.intValue ?? 0
+    }
+
+    var label: String { "\(name) · \(min(index + 1, count)) of \(count)" }
+}
+
+/// A playlist mixing YouTube, YouTube Music and Spotify songs, shared with the extension
+/// through `users/{uid}/playlists/{id}` (see playlists.js). Only a browser can play one:
+/// it opens each song in its service's tab and starts the next when it finishes.
+struct WebPlaylist: Identifiable, Equatable {
+    static let maxPlaylists = 100
+    static let maxTracks = 500
+    static let maxName = 80
+
+    let id: String
+    var name: String
+    var tracks: [PlaylistTrack]
+    var createdAt: Double
+    var updatedAt: Double
+
+    init(id: String = UUID().uuidString.lowercased(), name: String, tracks: [PlaylistTrack] = []) {
+        let now = (Date().timeIntervalSince1970 * 1000).rounded()
+        self.id = id
+        self.name = Self.clean(name)
+        self.tracks = tracks
+        createdAt = now
+        updatedAt = now
+    }
+
+    init?(data: [String: Any]) {
+        guard let id = data["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        name = Self.clean(data["name"] as? String ?? "")
+        tracks = (data["tracks"] as? [[String: Any]] ?? []).map(PlaylistTrack.init(data:))
+        createdAt = (data["createdAt"] as? NSNumber)?.doubleValue ?? 0
+        updatedAt = (data["updatedAt"] as? NSNumber)?.doubleValue ?? 0
+    }
+
+    /// Every field, as the extension writes them.
+    var data: [String: Any] {
+        ["id": id, "name": name, "tracks": tracks.map(\.data), "createdAt": createdAt, "updatedAt": updatedAt]
+    }
+
+    static func clean(_ name: String) -> String {
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxName))
+        return trimmed.isEmpty ? "Untitled playlist" : trimmed
+    }
+
+    func contains(_ track: PlaylistTrack) -> Bool { tracks.contains { $0.key == track.key } }
+
+    /// The services in it, in chart order.
+    var services: [String] { Service.all.filter { s in tracks.contains { $0.source == s } } }
+}
+
+struct PlaylistTrack: Equatable {
+    static let sources = ["youtube", "ytmusic", "spotify", "ios"]
+
+    let source: String
+    /// The service's own id: a video id, a Spotify track id, or a library song's persistent ID.
+    let id: String
+    let title: String
+    let artist: String
+
+    init(source: String?, id: String, title: String, artist: String) {
+        let source = source ?? "ios"
+        self.source = Self.sources.contains(source) ? source : "youtube"
+        self.id = id
+        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// From a stats track: another device's carries a "source:id" key, a library song its persistent ID.
+    init(source: String?, key: String, title: String, artist: String) {
+        self.init(source: source, id: source == nil ? key : WebLink.rawID(key), title: title, artist: artist)
+    }
+
+    init(data: [String: Any]) {
+        self.init(source: data["source"] as? String, id: data["id"] as? String ?? "",
+                  title: data["title"] as? String ?? "", artist: data["artist"] as? String ?? "")
+    }
+
+    var data: [String: Any] { ["source": source, "id": id, "title": title, "artist": artist] }
+
+    /// The key the stats file this song under, so a song is only added to a playlist once.
+    var key: String { "\(source):\(id.isEmpty ? title : id)" }
+
+    var thumbnail: URL? { WebLink.thumbnail(source: source, key: key) }
+}
+
+/// A pasted YouTube, YouTube Music or Spotify song link, read the way the extension's
+/// playlists.js reads it, and its title fetched from the site's public oEmbed endpoint.
+enum SongLink {
+    static func parse(_ text: String) -> (source: String, id: String)? {
+        guard let url = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              var host = url.host?.lowercased() else { return nil }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        let isYouTube = { (id: String) in id.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil }
+        switch host {
+        case "youtu.be":
+            let id = url.path.split(separator: "/").first.map(String.init) ?? ""
+            return isYouTube(id) ? ("youtube", id) : nil
+        case "youtube.com", "m.youtube.com", "music.youtube.com":
+            let parts = url.path.split(separator: "/").map(String.init)
+            let id = parts.first == "shorts" && parts.count > 1
+                ? parts[1]
+                : url.queryItems?.first { $0.name == "v" }?.value ?? ""
+            return isYouTube(id) ? (host == "music.youtube.com" ? "ytmusic" : "youtube", id) : nil
+        case "open.spotify.com":
+            // Localised links carry a prefix: /intl-de/track/{id}.
+            let parts = url.path.split(separator: "/").map(String.init)
+            guard let at = parts.firstIndex(of: "track"), at + 1 < parts.count else { return nil }
+            let id = parts[at + 1]
+            return id.range(of: "^[A-Za-z0-9]{22}$", options: .regularExpression) != nil ? ("spotify", id) : nil
+        default:
+            return nil
+        }
+    }
+
+    /// The song, titled when the site answers; offline it keeps its id as the title.
+    static func resolve(_ text: String) async -> PlaylistTrack? {
+        guard let link = parse(text) else { return nil }
+        let page = link.source == "spotify"
+            ? "https://open.spotify.com/track/\(link.id)"
+            : "https://www.youtube.com/watch?v=\(link.id)"
+        var endpoint = URLComponents(string: link.source == "spotify"
+            ? "https://open.spotify.com/oembed" : "https://www.youtube.com/oembed")!
+        endpoint.queryItems = [URLQueryItem(name: "url", value: page), URLQueryItem(name: "format", value: "json")]
+        var title = link.id
+        var artist = ""
+        if let url = endpoint.url,
+           let (data, response) = try? await URLSession.shared.data(from: url),
+           (response as? HTTPURLResponse)?.statusCode == 200,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let t = json["title"] as? String, !t.isEmpty { title = t }
+            // Spotify's answer names the track only; YouTube's names the channel.
+            if link.source != "spotify", let author = json["author_name"] as? String {
+                artist = author.hasSuffix(" - Topic") ? String(author.dropLast(8)) : author
+            }
+        }
+        return PlaylistTrack(source: link.source, id: link.id, title: title, artist: artist)
+    }
 }
 
 /// A browser signed in to the same account, which can be asked to play a song.

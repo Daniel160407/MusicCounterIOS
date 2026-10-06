@@ -35,6 +35,11 @@ struct LibraryView: View {
                 } else {
                     playlistsSection
                 }
+
+                // Below the downloaded ones. They don't need the music library, so they show either way.
+                if section == 1 {
+                    BrowserPlaylistsSection(query: query)
+                }
             }
             .listStyle(.insetGrouped)
             .pageBottomMargin()
@@ -82,6 +87,8 @@ struct LibraryView: View {
                     }
                 }
             }
+        } header: {
+            Text("Downloaded")
         } footer: {
             Text("Synced live from the Music app. Streamed-only songs that aren't downloaded are left out.")
         }
@@ -518,7 +525,7 @@ private struct AddToPlaylistButton: ToolbarContent {
 /// Picks a playlist to add songs to, or makes a new one. Songs already in the playlist are
 /// skipped so nothing is duplicated. iOS only lets an app change playlists it created itself,
 /// so adding to one made in the Music app explains that instead of failing silently.
-private struct AddToPlaylistSheet: View {
+struct AddToPlaylistSheet: View {
     @Environment(\.dismiss) private var dismiss
     let items: [MPMediaItem]
     @State private var playlists: [MPMediaPlaylist] = []

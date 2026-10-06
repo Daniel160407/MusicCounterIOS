@@ -28,7 +28,8 @@ screen then shows this phone and the browser combined, favorites and the history
 setting are shared, and tapping a browser track opens it on YouTube, YouTube Music or Spotify.
 Each device uploads only its own listening, and **Reset** erases only this phone's share.
 While the other devices' stats are first fetched from Firestore (after signing in, or on launch),
-the Today, Tracks, Insights and History screens show a pulsing loading skeleton.
+the app shows just its logo in the middle of the screen, carrying on from the launch screen, for up to
+10 seconds.
 
 Sync is off until it is set up (use the same Firebase project as the extension; see its README
 for creating the project, Firestore and the Google provider):
@@ -51,7 +52,7 @@ Presses take effect within a few seconds. The browser song's position isn't shar
 has no progress line. Your phone's own song takes the mini player while it
 plays. The browser's song is hidden 3 minutes after the browser stops reporting it (it reports
 once a minute while playing), or after 30 minutes paused. Tap the bar (or swipe it up) for
-the full player: large cover, favorite star, the same three buttons, the song's combined time
+the full player: large cover, favorite star, an add-to-playlist button, the same three buttons, the song's combined time
 and plays, which browser it's playing in, and a **volume** slider that sets the browser player's
 volume when you let go of it (it takes effect within a few seconds; volume 0 counts as muted, so
 that listening isn't counted). For YouTube and YouTube Music it runs from 0% to 200%, with the
@@ -68,15 +69,40 @@ has to be running, and it may refuse to start sound in a tab you haven't clicked
 browsers seen in the last 30 days are offered. The browser can't control the phone, because iOS suspends the app in the
 background.
 
+**Adding the playing song to a playlist:** the full player has a playlist button beside the
+star. For a downloaded song it opens the same **Add to Playlist** sheet as the Library (Music app
+playlists, or a new one); for a song playing in the browser it lists the YouTube & Spotify
+playlists below, plus **New Playlist…**, which starts one with that song. Its icon shows a tick once
+the browser song is in a playlist.
+
+**Browser playlists:** **Library → Playlists** has a **YouTube & Spotify** section, below the
+downloaded playlists, holding playlists that mix YouTube, YouTube Music and Spotify songs, shared with the extension (the same list shows in its
+**Playlists** tab). Make one with **New Playlist** there, or with **Add to a Playlist → New
+Playlist…** in the long-press menu of any song in Tracks or History, which starts it with that
+song. Add more songs from the same menu, or paste a YouTube, YouTube Music or Spotify song link into a playlist (its
+title is looked up from the site). Drag to reorder with **Edit**, swipe to remove, and use **⋯**
+to rename or delete. **Play on Chrome on …** starts the playlist in that browser, and tapping a
+song plays it from there: the browser opens each song in its service's tab and starts the next
+one when it finishes, so a YouTube song can be followed by a Spotify one. While it plays, the
+full player names the playlist and how far along it is, and **previous** / **next** step through
+the playlist's songs. Moving to another song in the browser any other way stops the playlist.
+The phone can't play these playlists itself (YouTube and Spotify songs only play in a browser),
+so they need you to be signed in; a song from your iPhone library plays there as the first
+YouTube search result.
+
 ## How it counts
 
 - **Live** (app open or recently backgrounded): watches the system Music player and accrues real
-  seconds; a song earns a play after half of it (a flat minute if the length is unknown).
+  seconds; a song earns a play after half of it (a flat minute if the length is unknown). A song
+  that started while the app was suspended (e.g. it advanced on the lock screen) keeps the part
+  already played toward that half when you come back.
 - **Reconcile** (on every launch / return to foreground): compares each song's library
   `playCount` with the last snapshot and credits plays that happened while the app was closed,
   with time estimated as plays × duration. Plays already counted live are not counted twice.
 - The first launch only records a baseline, so your existing play history isn't credited.
 - Cloud-only (streamed, not downloaded) songs are skipped.
+- The Home tab's **daily goal** is yesterday's listening plus one hour, so it rises after a big day
+  and eases off after a quiet one (an hour if you didn't listen yesterday).
 
 ## Library and playlists
 
@@ -92,6 +118,22 @@ are skipped. You can also make a new playlist from the same sheet. iOS only lets
 playlists it created, so for playlists made in the Music app it says so; add those songs in the
 Music app instead.
 
+## Sharing
+
+The share button on the Home tab opens a card to post: pick **Day**, **Week** (Monday to today),
+**Month** (past 30 days) or **Year** (past 12 calendar months) and it shows the period's listening,
+a chart split by service (days, or a column per month for the year), each service's time and
+share, and your all-time most played song and top artist. It's the same card the browser
+extension draws (`ShareCard.swift` mirrors `popup.js`), rendered at 1080×1350 and handed to the
+share sheet with a ready-made caption.
+
+## Insights
+
+**Days you listened** shows the last 7 days, 30 days or 9 months. The ‹ › arrows step back and
+forward a whole range at a time, and the by-service card below follows with each service's share, plays and time, as far back as listening was
+first recorded on any device. **Hours of the day** steps a day at a time, or adds every recorded
+day together under **All time**.
+
 ## Achievements
 
 The **Insights** tab opens with an achievements card linking to the full list of 44 badges
@@ -100,6 +142,13 @@ synced device, a banner slides in when one is earned with the app open (plus a l
 notification — a full alert if the app isn't on screen), and earned badges stay
 earned after **Reset stats**. The definitions in `Achievements.swift` mirror the extension's
 `achievements.js` — keep the two in step.
+
+A badge's date is when your listening actually reached it, not when the app noticed: the
+hour-by-hour listening (every device), the play history and the favorites are replayed in
+order to find the moment each goal was crossed (to within the hour). Badges earned before
+achievements existed are back-dated the same way once, and again when synced listening loads.
+Superfan and Ultimate Fan keep the date they were noticed, since per-artist time has no
+timeline.
 
 With Background App Refresh on, iOS also wakes the app now and then while it's closed (at
 most hourly, usually less): it credits library plays, pulls the other devices' listening and

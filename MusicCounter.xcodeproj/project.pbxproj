@@ -21,11 +21,13 @@
 		61D628A74BE76C35639E8405 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 545284273C84807AE86EC504 /* GoogleSignIn */; };
 		6D8B3591ADD11A97C91550CE /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12747C1E14049EDF1406BE2A /* BackgroundRefresh.swift */; };
 		7B8729BDDC16E87D28218FAF /* Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9CF9F666153D5777C0FC7CC /* Sync.swift */; };
+		7C7E1FFCCD680F4D10A31C2E /* PlaylistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3738B43824C8FB8823312E3C /* PlaylistsView.swift */; };
 		B6C2400124A290762E1391F6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A5B4BE24C9F2AD4141FF88 /* ContentView.swift */; };
 		BB4697FBD4F85606E297F265 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7E94F69F568291F39EC336 /* LibraryView.swift */; };
 		CBE28B026CEB4D2B266D39A9 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = ACDF66DF83677B86E0AF2277 /* FirebaseFirestore */; };
 		CF1BB6442F3E31210B101C35 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8436A2C33C2AD1BA06AC2BB9 /* HistoryView.swift */; };
 		F33262EE922AA051859FC51F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2706937B2E10F088B39DA086 /* GoogleService-Info.plist */; };
+		F387B350E906239876664913 /* ShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F0AD1A6AA26797C6A2F9080 /* ShareCard.swift */; };
 		F478E295E01F522950FBE474 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA59182560F92712EE8FC7F /* Store.swift */; };
 		F5C96F25A0AEDB4EB2FB00BF /* Achievements.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3B27AB7356ADB1C81E88FF /* Achievements.swift */; };
 		FB8E6413E9C14F763E83EE3E /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15E0CC2FFD3C75013773A97 /* Components.swift */; };
@@ -33,9 +35,11 @@
 
 /* Begin PBXFileReference section */
 		07E6606687EC57E2B3BEC1DD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0F0AD1A6AA26797C6A2F9080 /* ShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCard.swift; sourceTree = "<group>"; };
 		12747C1E14049EDF1406BE2A /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
 		2706937B2E10F088B39DA086 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		273FB039E7ED95B0FF216B0A /* TracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracksView.swift; sourceTree = "<group>"; };
+		3738B43824C8FB8823312E3C /* PlaylistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistsView.swift; sourceTree = "<group>"; };
 		4E641B912A608742A693824B /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		6EBFE51A9EF8E76327CECAC9 /* MusicCounterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicCounterApp.swift; sourceTree = "<group>"; };
 		70A5B4BE24C9F2AD4141FF88 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -85,6 +89,8 @@
 				4E641B912A608742A693824B /* Models.swift */,
 				6EBFE51A9EF8E76327CECAC9 /* MusicCounterApp.swift */,
 				82F0679C5470F0682068A00F /* PlayerView.swift */,
+				3738B43824C8FB8823312E3C /* PlaylistsView.swift */,
+				0F0AD1A6AA26797C6A2F9080 /* ShareCard.swift */,
 				AFA59182560F92712EE8FC7F /* Store.swift */,
 				C9CF9F666153D5777C0FC7CC /* Sync.swift */,
 				A2A8B89A5F5C26FFC2400DD7 /* SyncFormat.swift */,
@@ -196,6 +202,8 @@
 				48051069C6463D967943D65F /* Models.swift in Sources */,
 				1427748E62F5BF0C31A76655 /* MusicCounterApp.swift in Sources */,
 				3E401240BFF81C55E2A707AC /* PlayerView.swift in Sources */,
+				7C7E1FFCCD680F4D10A31C2E /* PlaylistsView.swift in Sources */,
+				F387B350E906239876664913 /* ShareCard.swift in Sources */,
 				F478E295E01F522950FBE474 /* Store.swift in Sources */,
 				7B8729BDDC16E87D28218FAF /* Sync.swift in Sources */,
 				28E35497BB6CCBE8FF84AE8A /* SyncFormat.swift in Sources */,
@@ -218,7 +226,6 @@
 				GOOGLE_REVERSED_CLIENT_ID = "com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g";
 				INFOPLIST_FILE = MusicCounter/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Music Counter reads your music library to count how much you listen.";
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -361,7 +368,6 @@
 				GOOGLE_REVERSED_CLIENT_ID = "com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g";
 				INFOPLIST_FILE = MusicCounter/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Music Counter reads your music library to count how much you listen.";
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

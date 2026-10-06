@@ -32,7 +32,6 @@ targets:
         # REVERSED_CLIENT_ID from GoogleService-Info.plist.
         GOOGLE_REVERSED_CLIENT_ID: com.googleusercontent.apps.515308983046-ek0r1fnfoh2br7s8q2mro8bf1svh938g
         INFOPLIST_KEY_NSAppleMusicUsageDescription: "Music Counter reads your music library to count how much you listen."
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "1.0"
