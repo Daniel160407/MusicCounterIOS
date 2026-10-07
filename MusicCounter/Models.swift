@@ -122,6 +122,71 @@ enum ArtistName {
         return a.isEmpty || a == "unknown artist" || a == "<unknown>" || a == "unknown"
     }
 
+    /// Collaborations are often credited in the title rather than the artist tag —
+    /// "Irina Rimes x Delia - Petale" tagged "Irina Rimes". Any `known` artist who
+    /// appears in the title's credit part (the side of " - " that names the artist,
+    /// or after "feat." / "ft." / "(with") is attached: "Irina Rimes, Delia", the
+    /// shape Spotify uses. Longer names win, so "Delia Matache" isn't also "Delia".
+    /// Mirrors `withTitleArtists` in the extension's background.js.
+    static func withTitleArtists(_ artist: String, title: String, known: some Sequence<String>) -> String {
+        let credited = isUnknown(artist) ? [] : artist.components(separatedBy: ", ")
+        var regions: [String] = []
+        if let dash = title.range(of: #"\s[-–—]\s"#, options: .regularExpression), dash.lowerBound > title.startIndex {
+            // Usually "Artists - Song", but "Song - Artists" exists too: take the side
+            // that names the artist we already have.
+            let head = String(title[..<dash.lowerBound])
+            let tail = String(title[dash.upperBound...])
+            let namesArtist = { (side: String) in credited.contains { matches($0, in: side) } }
+            regions.append(!namesArtist(head) && namesArtist(tail) ? tail : head)
+        }
+        for m in featureRegex.matches(in: title, range: NSRange(title.startIndex..., in: title)) {
+            if let r = Range(m.range(at: 1), in: title) { regions.append(String(title[r])) }
+        }
+        if regions.isEmpty { return artist }
+
+        var names = Set<String>()
+        for key in known {
+            names.insert(key.trimmingCharacters(in: .whitespaces))
+            for part in key.components(separatedBy: ", ") { names.insert(part.trimmingCharacters(in: .whitespaces)) }
+        }
+
+        // Blank out the artists already credited so their names, or pieces of them,
+        // can't match again; then each found name, longest first.
+        var credits = regions.joined(separator: " | ") as NSString
+        func blank(_ name: String) -> Int? {
+            let re = matcher(name)
+            let first = re.rangeOfFirstMatch(in: credits as String, range: NSRange(location: 0, length: credits.length))
+            guard first.location != NSNotFound else { return nil }
+            for m in re.matches(in: credits as String, range: NSRange(location: 0, length: credits.length)) {
+                credits = credits.replacingCharacters(in: m.range, with: String(repeating: " ", count: m.range.length)) as NSString
+            }
+            return first.location
+        }
+        for name in credited { _ = blank(name) }
+
+        var found: [(name: String, at: Int)] = []
+        let candidates = names
+            .filter { $0.count >= 2 && !isUnknown($0) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
+        for name in candidates where !credited.contains(where: { matches(name, in: $0) }) {
+            if let at = blank(name) { found.append((name, at)) }
+        }
+        if found.isEmpty { return artist }
+        return (credited + found.sorted { $0.at < $1.at }.map(\.name)).joined(separator: ", ")
+    }
+
+    private static let featureRegex = try! NSRegularExpression(
+        pattern: #"(?:\bfeat\.?|\bft\.?|\bfeaturing|[(\[]\s*with)\s+([^)\]]+)"#, options: .caseInsensitive)
+
+    private static func matcher(_ name: String) -> NSRegularExpression {
+        let escaped = NSRegularExpression.escapedPattern(for: name)
+        return try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])"# + escaped + #"(?![\p{L}\p{N}])"#, options: .caseInsensitive)
+    }
+
+    private static func matches(_ name: String, in text: String) -> Bool {
+        matcher(name).firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
     private static func fromTitle(_ title: String?) -> String? {
         guard let title else { return nil }
         for sep in [" - ", " – ", " — "] {

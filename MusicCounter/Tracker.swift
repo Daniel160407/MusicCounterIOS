@@ -29,6 +29,8 @@ final class Tracker: ObservableObject {
     private var awarded = false
     private var lastPlaybackTime: TimeInterval = 0
     private var currentDuration: TimeInterval = 0
+    /// The playing song's artist with title-credited collaborators attached, worked out once per song.
+    private var currentArtist: (id: String, name: String)?
 
     init(store: Store) {
         self.store = store
@@ -149,7 +151,10 @@ final class Tracker: ObservableObject {
         lastPlaybackTime = pos
 
         let title = item.title ?? "Unknown"
-        let artist = item.displayArtist
+        if currentArtist?.id != id {
+            currentArtist = (id, store.creditedArtist(item.displayArtist, title: title))
+        }
+        let artist = currentArtist?.name ?? item.displayArtist
         store.addTime(elapsed, to: id, title: title, artist: artist)
         progress += elapsed
 
@@ -291,7 +296,7 @@ final class Tracker: ObservableObject {
             store.addPlays(
                 missed, to: id,
                 title: item.title ?? "Unknown",
-                artist: item.displayArtist,
+                artist: store.creditedArtist(item.displayArtist, title: item.title ?? "Unknown"),
                 estimatedSeconds: Double(missed) * item.playbackDuration,
                 on: item.lastPlayedDate
             )

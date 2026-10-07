@@ -30,7 +30,7 @@ Each device uploads only its own listening, and **Reset** erases only this phone
 While the other devices' stats are first fetched from Firestore (after signing in, or on launch),
 the app shows its logo in the middle of the screen, carrying on from the launch screen, for up to
 10 seconds. The logo then glides up as a week of columns, each split into Spotify, YouTube and
-iPhone, rises in beneath it, the two centred together, and the columns roll in a wave while it loads (held still when Reduce Motion is on).
+Pocket, rises in beneath it, the two centred together, and the columns roll in a wave while it loads (held still when Reduce Motion is on).
 
 Sync is off until it is set up (use the same Firebase project as the extension; see its README
 for creating the project, Firestore and the Google provider):
@@ -109,8 +109,16 @@ YouTube search result.
   with time estimated as plays × duration. Plays already counted live are not counted twice.
 - The first launch only records a baseline, so your existing play history isn't credited.
 - Cloud-only (streamed, not downloaded) songs are skipped.
+- **Collaborations named in the title:** when a song's title credits an artist already in your
+  stats ("Irina Rimes x Delia - Petale" tagged only "Irina Rimes") — on the side of " - " that
+  names the tagged artist, or after "feat.", "ft." or "(with" — that artist is attached and the
+  song is recorded as **Irina Rimes, Delia**, the same way Spotify lists several artists. Longer
+  names win, so "Delia Matache" is not also read as "Delia". The browser extension does the same.
 - The Home tab's **daily goal** is yesterday's listening plus one hour, so it rises after a big day
-  and eases off after a quiet one (an hour if you didn't listen yesterday).
+  and eases off after a quiet one (an hour if you didn't listen yesterday). It counts every synced
+  device, the same goal the extension sets. Reaching it is announced once a day: a **Daily goal
+  reached** banner with the achievement chime while the app is open, plus a local notification
+  (a full alert with the chime when the app isn't on screen, also from background refresh).
 
 ## Library and playlists
 
@@ -133,7 +141,7 @@ The share button on the Home tab opens a card to post: pick **Day**, **Week** (M
 a chart split by service (days, or a column per month for the year), each service's time and
 share, and your all-time most played song and top artist. It's the same card the browser
 extension draws (`ShareCard.swift` mirrors `popup.js`), rendered at 1080×1350 and handed to the
-share sheet with a ready-made caption.
+share sheet with a ready-made caption. This phone's listening appears as **Pocket** wherever services are named.
 
 ## Insights
 
@@ -144,12 +152,17 @@ day together under **All time**.
 
 ## Achievements
 
-The **Insights** tab opens with an achievements card linking to the full list of 44 badges
+The **Insights** tab opens with an achievements card linking to the full list of 51 badges
 (listening time, sessions, streaks, plays, variety, favorites, milestones). They count listening from every
-synced device, a banner slides in when one is earned with the app open (plus a local
-notification — a full alert if the app isn't on screen), and earned badges stay
+synced device, a banner slides in with a short chime when one is earned with the app open (plus a local
+notification — a full alert with the same chime if the app isn't on screen; it's the extension's
+`achievement.wav`, and follows the silent switch), and earned badges stay
 earned after **Reset stats**. The definitions in `Achievements.swift` mirror the extension's
 `achievements.js` — keep the two in step.
+
+Badges won within one day, week or weekend (Deep Session, Switch Hitter, the plays-per-day
+badges, Big Week, Weekend Warrior and so on) are earned by your best one, but while locked their
+progress shows the period you're in now, such as "45m / 2h today" or "8h / 20h this week".
 
 A badge's date is when your listening actually reached it, not when the app noticed: the
 hour-by-hour listening (every device), the play history and the favorites are replayed in

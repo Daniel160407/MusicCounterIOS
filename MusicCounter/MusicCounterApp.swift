@@ -8,6 +8,7 @@ struct MusicCounterApp: App {
     @StateObject private var tracker: Tracker
     @StateObject private var sync: Sync
     @StateObject private var achievements: Achievements
+    @StateObject private var dailyGoal: DailyGoal
 
     init() {
         // Sync stays off (and the app works as before) until GoogleService-Info.plist is added.
@@ -18,11 +19,13 @@ struct MusicCounterApp: App {
         let tracker = Tracker(store: store)
         let sync = Sync(store: store)
         let achievements = Achievements(store: store)
+        let dailyGoal = DailyGoal(store: store)
         _store = StateObject(wrappedValue: store)
         _tracker = StateObject(wrappedValue: tracker)
         _sync = StateObject(wrappedValue: sync)
         _achievements = StateObject(wrappedValue: achievements)
-        BackgroundRefresh.configure(tracker: tracker, sync: sync, achievements: achievements)
+        _dailyGoal = StateObject(wrappedValue: dailyGoal)
+        BackgroundRefresh.configure(tracker: tracker, sync: sync, achievements: achievements, dailyGoal: dailyGoal)
     }
 
     var body: some Scene {
@@ -32,6 +35,7 @@ struct MusicCounterApp: App {
                 .environmentObject(tracker)
                 .environmentObject(sync)
                 .environmentObject(achievements)
+                .environmentObject(dailyGoal)
                 .task {
                     tracker.start()
                     sync.start()

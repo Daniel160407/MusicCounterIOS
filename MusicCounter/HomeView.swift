@@ -103,8 +103,7 @@ struct HomeView: View {
     }
 
     private var heroCard: some View {
-        // The goal grows with you: one hour more than you listened yesterday.
-        let goal = (store.lastDays(2).first?.seconds ?? 0) + 3600
+        let goal = store.dailyGoal
         let today = store.todaySeconds
         return Card {
             HStack(spacing: 20) {

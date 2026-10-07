@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var tracker: Tracker
     @EnvironmentObject var sync: Sync
     @EnvironmentObject var achievements: Achievements
+    @EnvironmentObject var dailyGoal: DailyGoal
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(Retention.storageKey) private var retention = Retention.forever.rawValue
     @State private var showPlayer = false
@@ -43,6 +44,19 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.8), value: achievements.justUnlocked.first?.id)
+        .overlay(alignment: .top) {
+            // Waits for any achievement banner to clear first.
+            if achievements.justUnlocked.isEmpty, let seconds = dailyGoal.justReached {
+                GoalBanner(seconds: seconds)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onTapGesture { dailyGoal.justReached = nil }
+                    .task {
+                        guard (try? await Task.sleep(nanoseconds: 3_500_000_000)) != nil else { return }
+                        dailyGoal.justReached = nil
+                    }
+            }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.8), value: dailyGoal.justReached)
         .overlay(alignment: .top) {
             if let notice = sync.sentNotice {
                 Label(notice, systemImage: "desktopcomputer")

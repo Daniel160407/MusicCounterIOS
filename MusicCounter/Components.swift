@@ -82,7 +82,7 @@ struct SyncSplash: View {
     }
 }
 
-/// Seven day columns, each split into Spotify, YouTube and iPhone, rising in one after another and then
+/// Seven day columns, each split into Spotify, YouTube and Pocket, rising in one after another and then
 /// rolling in a wave while the services trade shares, as if the week were still being tallied.
 private struct SplashColumns: View {
     private static let services = ["spotify", "youtube", "ios"]

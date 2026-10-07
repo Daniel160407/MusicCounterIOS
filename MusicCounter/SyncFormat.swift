@@ -199,7 +199,7 @@ enum WebLink {
         case "youtube": return "YouTube"
         case "ytmusic": return "YouTube Music"
         case "spotify": return "Spotify"
-        case "ios": return "iPhone"
+        case "ios": return "Pocket"
         default: return source
         }
     }

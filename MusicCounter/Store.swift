@@ -111,6 +111,11 @@ final class Store: ObservableObject {
     /// Every track this phone and the other devices know about.
     var allTracks: [TrackStat] { Array(stats.tracks.values) + Array(remoteTracks.values) }
 
+    /// `artist` plus any already-heard artist the title credits ("Irina Rimes x Delia - Petale").
+    func creditedArtist(_ artist: String, title: String) -> String {
+        ArtistName.withTitleArtists(artist, title: title, known: Set(allTracks.map(\.artist)))
+    }
+
     /// Plays from every device, oldest first.
     var allHistory: [HistoryEntry] {
         remoteHistory.isEmpty ? stats.history : (stats.history + remoteHistory).sorted { $0.at < $1.at }
@@ -148,6 +153,7 @@ final class Store: ObservableObject {
     func addTime(_ seconds: Double, to id: String, title: String, artist: String) {
         mutate { s in
             var t = s.tracks[id] ?? TrackStat(id: id, title: title, artist: artist)
+            t.artist = artist
             t.seconds += seconds
             t.lastPlayed = Date()
             s.tracks[id] = t
@@ -160,6 +166,7 @@ final class Store: ObservableObject {
         let when = date ?? Date()
         mutate { s in
             var t = s.tracks[id] ?? TrackStat(id: id, title: title, artist: artist)
+            t.artist = artist
             t.plays += plays
             t.seconds += estimatedSeconds
             t.lastPlayed = max(t.lastPlayed ?? .distantPast, when)

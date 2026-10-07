@@ -1,3 +1,4 @@
+import AudioToolbox
 import Foundation
 import Combine
 import UIKit
@@ -9,11 +10,27 @@ import UserNotifications
 struct Achievement: Identifiable {
     enum Metric {
         case totalSeconds, bestDaySeconds, nightOwl, earlyBird, longestStreak, activeDays
-        case bestWeekendSeconds, dawnToDusk, hoursCovered, longestHabit, longestGap, daysSinceFirst
-        case totalPlays, topTrackPlays, artistCount, trackCount, topArtistSeconds, serviceCount, favoriteCount
+        case bestWeekendSeconds, bestWeekSeconds, activeWeeks, bestDayServices, pocketSeconds, dawnToDusk, hoursCovered, longestHabit, longestGap, daysSinceFirst
+        case totalPlays, topTrackPlays, bestDayPlays, artistCount, trackCount, topArtistSeconds, serviceCount, favoriteCount
+        // The day, week and weekend you're in now.
+        case todaySeconds, todayPlays, todayServices, thisWeekSeconds, thisWeekendSeconds
+
+        /// Badges won within one day, week or weekend are earned by your best one,
+        /// but while locked they show how the current one is going: the metric
+        /// measuring the period you're in, and the word that names it.
+        var current: (metric: Metric, period: String)? {
+            switch self {
+            case .bestDaySeconds: (.todaySeconds, "today")
+            case .bestDayPlays: (.todayPlays, "today")
+            case .bestDayServices: (.todayServices, "today")
+            case .bestWeekSeconds: (.thisWeekSeconds, "this week")
+            case .bestWeekendSeconds: (.thisWeekendSeconds, "this weekend")
+            default: nil
+            }
+        }
     }
 
-    enum Unit { case time, days, count, flag }
+    enum Unit { case time, days, weeks, count, flag }
 
     let id: String
     let group: String
@@ -40,6 +57,7 @@ struct Achievement: Identifiable {
         .init(id: "marathon", group: "Sessions", symbol: "figure.run", title: "Marathon", text: "Listen for 6 hours in one day", metric: .bestDaySeconds, goal: 6 * hour, unit: .time),
         .init(id: "all-nighter", group: "Sessions", symbol: "moon.fill", title: "All-Nighter", text: "Listen for 10 hours in one day", metric: .bestDaySeconds, goal: 10 * hour, unit: .time),
         .init(id: "weekend-warrior", group: "Sessions", symbol: "party.popper.fill", title: "Weekend Warrior", text: "Listen for 5 hours over one Saturday and Sunday", metric: .bestWeekendSeconds, goal: 5 * hour, unit: .time),
+        .init(id: "big-week", group: "Sessions", symbol: "calendar", title: "Big Week", text: "Listen for 20 hours in one week", metric: .bestWeekSeconds, goal: 20 * hour, unit: .time),
         .init(id: "night-owl", group: "Sessions", symbol: "moon.stars.fill", title: "Night Owl", text: "Listen for 10 minutes between midnight and 4 AM", metric: .nightOwl, goal: 1, unit: .flag),
         .init(id: "early-bird", group: "Sessions", symbol: "sunrise.fill", title: "Early Bird", text: "Listen for 10 minutes between 5 and 7 AM", metric: .earlyBird, goal: 1, unit: .flag),
         .init(id: "dawn-to-dusk", group: "Sessions", symbol: "sun.horizon.fill", title: "Dawn to Dusk", text: "Listen for 10 minutes in the night, morning, afternoon and evening of one day", metric: .dawnToDusk, goal: 1, unit: .flag),
@@ -54,6 +72,7 @@ struct Achievement: Identifiable {
         .init(id: "daily-habit", group: "Streaks", symbol: "alarm.fill", title: "Daily Habit", text: "Listen for 30 minutes a day, 7 days in a row", metric: .longestHabit, goal: 7, unit: .days),
         .init(id: "regular", group: "Streaks", symbol: "chart.line.uptrend.xyaxis", title: "Regular", text: "Listen on 30 different days", metric: .activeDays, goal: 30, unit: .days),
         .init(id: "devoted", group: "Streaks", symbol: "hands.clap.fill", title: "Devoted", text: "Listen on 100 different days", metric: .activeDays, goal: 100, unit: .days),
+        .init(id: "weekly-ritual", group: "Streaks", symbol: "calendar.badge.checkmark", title: "Weekly Ritual", text: "Listen in 52 different weeks", metric: .activeWeeks, goal: 52, unit: .weeks),
 
         // Plays
         .init(id: "century", group: "Plays", symbol: "play.fill", title: "Century", text: "Play 100 tracks", metric: .totalPlays, goal: 100, unit: .count),
@@ -62,6 +81,10 @@ struct Achievement: Identifiable {
         .init(id: "on-repeat", group: "Plays", symbol: "repeat", title: "On Repeat", text: "Play the same track 10 times", metric: .topTrackPlays, goal: 10, unit: .count),
         .init(id: "obsessed", group: "Plays", symbol: "repeat.1", title: "Obsessed", text: "Play the same track 50 times", metric: .topTrackPlays, goal: 50, unit: .count),
         .init(id: "broken-record", group: "Plays", symbol: "record.circle.fill", title: "Broken Record", text: "Play the same track 100 times", metric: .topTrackPlays, goal: 100, unit: .count),
+        .init(id: "day-plays-50", group: "Plays", symbol: "music.note.list", title: "Full Rotation", text: "Play 50 tracks in one day", metric: .bestDayPlays, goal: 50, unit: .count),
+        .init(id: "day-plays-100", group: "Plays", symbol: "star.circle.fill", title: "Hundred Club", text: "Play 100 tracks in one day", metric: .bestDayPlays, goal: 100, unit: .count),
+        .init(id: "day-plays-300", group: "Plays", symbol: "bolt.fill", title: "Track Frenzy", text: "Play 300 tracks in one day", metric: .bestDayPlays, goal: 300, unit: .count),
+        .init(id: "day-plays-500", group: "Plays", symbol: "infinity", title: "Endless Mix", text: "Play 500 tracks in one day", metric: .bestDayPlays, goal: 500, unit: .count),
 
         // Variety
         .init(id: "explorer", group: "Variety", symbol: "safari.fill", title: "Explorer", text: "Listen to 10 different artists", metric: .artistCount, goal: 10, unit: .count),
@@ -73,7 +96,8 @@ struct Achievement: Identifiable {
         .init(id: "superfan", group: "Variety", symbol: "person.fill.checkmark", title: "Superfan", text: "Spend 10 hours with one artist", metric: .topArtistSeconds, goal: 10 * hour, unit: .time),
         .init(id: "ultimate-fan", group: "Variety", symbol: "heart.fill", title: "Ultimate Fan", text: "Spend 50 hours with one artist", metric: .topArtistSeconds, goal: 50 * hour, unit: .time),
         .init(id: "everywhere", group: "Variety", symbol: "antenna.radiowaves.left.and.right", title: "Everywhere", text: "Listen on 3 different services", metric: .serviceCount, goal: 3, unit: .count),
-        .init(id: "omnivore", group: "Variety", symbol: "globe", title: "Omnivore", text: "Listen on YouTube, YouTube Music, Spotify and iPhone", metric: .serviceCount, goal: 4, unit: .count),
+        .init(id: "switch-hitter", group: "Variety", symbol: "shuffle", title: "Switch Hitter", text: "Listen on 3 services in one day", metric: .bestDayServices, goal: 3, unit: .count),
+        .init(id: "pocket-rocket", group: "Variety", symbol: "iphone.gen3", title: "Pocket Rocket", text: "Listen for 50 hours on Pocket", metric: .pocketSeconds, goal: 50 * hour, unit: .time),
 
         // Favorites
         .init(id: "first-love", group: "Favorites", symbol: "star.fill", title: "First Love", text: "Star your first favorite", metric: .favoriteCount, goal: 1, unit: .count),
@@ -100,11 +124,14 @@ struct AchievementStatus: Identifiable {
 
     var progressText: String {
         let a = achievement
+        // A badge won within one day, week or weekend shows the one you're in.
+        let period = a.metric.current.map { " \($0.period)" } ?? ""
         switch a.unit {
         case .flag: return ""
-        case .time: return "\(formatDuration(value)) / \(formatDuration(a.goal))"
-        case .days: return "\(Int(value)) / \(Int(a.goal)) days"
-        case .count: return "\(Int(value).formatted()) / \(Int(a.goal).formatted())"
+        case .time: return "\(formatDuration(value)) / \(formatDuration(a.goal))\(period)"
+        case .days: return "\(Int(value)) / \(Int(a.goal)) days\(period)"
+        case .weeks: return "\(Int(value)) / \(Int(a.goal)) weeks\(period)"
+        case .count: return "\(Int(value).formatted()) / \(Int(a.goal).formatted())\(period)"
         }
     }
 }
@@ -163,6 +190,49 @@ enum AchievementMetrics {
             }
         }
 
+        // Weeks run Monday to Sunday.
+        var weekTotals: [String: Double] = [:]
+        for (key, seconds) in days {
+            guard let week = weekKey(key) else { continue }
+            weekTotals[week, default: 0] += seconds
+        }
+        let activeWeeks = Set(active.compactMap(weekKey)).count
+
+        var bestDayServices = 0
+        for hours in store.allDayHourServices.values {
+            var services: [String: Double] = [:]
+            for slice in hours.prefix(24) {
+                for (source, seconds) in slice where source != Service.other && seconds > 0 {
+                    services[source, default: 0] += seconds
+                }
+            }
+            bestDayServices = max(bestDayServices, services.values.filter { $0 >= activeDaySeconds }.count)
+        }
+
+        // Plays per day come from the history, one row per play, so a day the
+        // retention setting has trimmed away no longer counts.
+        var dayPlays: [String: Int] = [:]
+        for e in store.allHistory { dayPlays[dayFormatter.string(from: e.at), default: 0] += 1 }
+
+        // The day, week and weekend you're in now. On a weekday the weekend is the
+        // coming one, so nothing has been listened to in it yet.
+        let today = cal.startOfDay(for: Date())
+        let todayKey = dayFormatter.string(from: today)
+        var todayServiceSeconds: [String: Double] = [:]
+        for slice in (store.allDayHourServices[todayKey] ?? []).prefix(24) {
+            for (source, seconds) in slice where source != Service.other && seconds > 0 {
+                todayServiceSeconds[source, default: 0] += seconds
+            }
+        }
+        func dayTotal(_ offset: Int) -> Double {
+            cal.date(byAdding: .day, value: offset, to: today).flatMap { days[dayFormatter.string(from: $0)] } ?? 0
+        }
+        let thisWeekend: Double = switch cal.component(.weekday, from: today) {
+        case 7: dayTotal(0)
+        case 1: dayTotal(-1) + dayTotal(0)
+        default: 0
+        }
+
         let activeRuns = runs(active)
         let habit = days.filter { $0.value >= habitDaySeconds }.map(\.key)
         let daysSinceFirst = activeRuns.first.flatMap {
@@ -178,6 +248,15 @@ enum AchievementMetrics {
             .nightOwl: nightOwl,
             .earlyBird: earlyBird,
             .bestWeekendSeconds: bestWeekend,
+            .bestWeekSeconds: weekTotals.values.max() ?? 0,
+            .todaySeconds: days[todayKey] ?? 0,
+            .todayPlays: Double(dayPlays[todayKey] ?? 0),
+            .todayServices: Double(todayServiceSeconds.values.filter { $0 >= activeDaySeconds }.count),
+            .thisWeekSeconds: weekKey(todayKey).flatMap { weekTotals[$0] } ?? 0,
+            .thisWeekendSeconds: thisWeekend,
+            .activeWeeks: Double(activeWeeks),
+            .bestDayServices: Double(bestDayServices),
+            .pocketSeconds: store.services.first { $0.source == "ios" }?.seconds ?? 0,
             .dawnToDusk: dawnToDusk,
             .hoursCovered: Double(hourTotals.filter { $0 >= activeDaySeconds }.count),
             .longestStreak: Double(activeRuns.longest),
@@ -187,6 +266,7 @@ enum AchievementMetrics {
             .daysSinceFirst: Double(daysSinceFirst),
             .totalPlays: Double(store.totalPlays),
             .topTrackPlays: Double(tracks.map(\.plays).max() ?? 0),
+            .bestDayPlays: Double(dayPlays.values.max() ?? 0),
             .artistCount: Double(artists.count),
             .trackCount: Double(tracks.filter { $0.seconds >= 1 || $0.plays > 0 }.count),
             .topArtistSeconds: artists.first?.seconds ?? 0,
@@ -241,6 +321,9 @@ enum AchievementMetrics {
         var total = 0.0
         var dayTotals: [String: Double] = [:]
         var weekendTotals: [String: Double] = [:]
+        var weekTotals: [String: Double] = [:]
+        var activeWeeks: Set<String> = []
+        var dayServices: [String: [String: Double]] = [:]
         var dayParts: [String: [Double]] = [:]
         var hourTotals = Array(repeating: 0.0, count: 24)
         var sources: [String: Double] = [:]
@@ -254,6 +337,8 @@ enum AchievementMetrics {
             case 1: cal.date(byAdding: .day, value: -1, to: slice.day).map { dayFormatter.string(from: $0) }
             default: nil
             }
+            let week = weekKey(key)
+            let known = slice.services.filter { $0.key != Service.other && $0.value > 0 }
             let shares = slice.services.filter { $0.value > 0 }.mapValues { $0 / slice.total }
             let step = slice.total / Double(steps)
             var hourSeconds = 0.0
@@ -272,10 +357,17 @@ enum AchievementMetrics {
                     reach(.longestStreak, Double(active.longest), at)
                     reach(.activeDays, Double(active.count), at)
                     reach(.longestGap, Double(active.gap), at)
+                    if let week { activeWeeks.insert(week) }
+                    reach(.activeWeeks, Double(activeWeeks.count), at)
                 }
                 if before < habitDaySeconds, today >= habitDaySeconds {
                     extend(&habit, slice.day)
                     reach(.longestHabit, Double(habit.longest), at)
+                }
+
+                if let week {
+                    weekTotals[week, default: 0] += step
+                    reach(.bestWeekSeconds, weekTotals[week] ?? 0, at)
                 }
 
                 if let weekend {
@@ -299,6 +391,12 @@ enum AchievementMetrics {
 
                 for (source, share) in shares { sources[source, default: 0] += step * share }
                 reach(.serviceCount, Double(sources.filter { $0.key != Service.other && $0.value >= activeDaySeconds }.count), at)
+                reach(.pocketSeconds, sources["ios"] ?? 0, at)
+
+                var servicesToday = dayServices[key] ?? [:]
+                for (source, seconds) in known { servicesToday[source, default: 0] += seconds / Double(steps) }
+                dayServices[key] = servicesToday
+                reach(.bestDayServices, Double(servicesToday.values.filter { $0 >= activeDaySeconds }.count), at)
             }
         }
 
@@ -322,7 +420,11 @@ enum AchievementMetrics {
         }
         var trackPlays: [String: Int] = [:]
         var artists = Set<String>()
+        var dayPlays: [String: Int] = [:]
         for e in plays {
+            let day = dayFormatter.string(from: e.at)
+            dayPlays[day, default: 0] += 1
+            reach(.bestDayPlays, Double(dayPlays[day] ?? 0), e.at)
             trackPlays[e.trackID, default: 0] += 1
             reach(.topTrackPlays, Double(trackPlays[e.trackID] ?? 0), e.at)
             reach(.trackCount, Double(trackPlays.count), e.at)
@@ -334,6 +436,14 @@ enum AchievementMetrics {
             reach(.favoriteCount, Double(i + 1), at)
         }
         return found
+    }
+
+    /// The Monday that starts the week holding the day `key`, as a day key.
+    static func weekKey(_ key: String) -> String? {
+        let cal = Calendar.current
+        guard let date = dayFormatter.date(from: key) else { return nil }
+        let back = (cal.component(.weekday, from: date) + 5) % 7
+        return cal.date(byAdding: .day, value: -back, to: date).map { dayFormatter.string(from: $0) }
     }
 
     /// Longest run of consecutive calendar days, and the longest stretch with none,
@@ -380,7 +490,9 @@ final class Achievements: ObservableObject {
         self.store = store
         let raw = UserDefaults.standard.dictionary(forKey: Self.unlockedKey) as? [String: Double] ?? [:]
         unlocked = raw.mapValues { Date(timeIntervalSince1970: $0) }
+        // Badges since retired can't be shown, so they mustn't count as unseen.
         unseen = Set(UserDefaults.standard.stringArray(forKey: Self.unseenKey) ?? [])
+            .intersection(Achievement.all.map(\.id))
         dated = UserDefaults.standard.bool(forKey: Self.datedKey)
         // objectWillChange fires before the change lands; the debounce both lets it
         // land and keeps a burst of ticks down to one evaluation.
@@ -404,7 +516,8 @@ final class Achievements: ObservableObject {
         let redating = !fresh.isEmpty || !dated || (store.hasRemote && !datedWithRemote)
         if redating { redate() }
         statuses = Achievement.all.map { a in
-            AchievementStatus(achievement: a, value: min(metrics[a.metric] ?? 0, a.goal), unlockedAt: unlocked[a.id])
+            let shown = a.metric.current?.metric ?? a.metric
+            return AchievementStatus(achievement: a, value: min(metrics[shown] ?? 0, a.goal), unlockedAt: unlocked[a.id])
         }
         if redating { save() }
         guard !fresh.isEmpty else { return [] }
@@ -412,7 +525,10 @@ final class Achievements: ObservableObject {
         save()
         if announce {
             // On screen the in-app banner shows it; otherwise the system notification is all you'd see.
-            if UIApplication.shared.applicationState == .active { justUnlocked.append(contentsOf: fresh) }
+            if UIApplication.shared.applicationState == .active {
+                justUnlocked.append(contentsOf: fresh)
+                AchievementNotifier.shared.playChime()
+            }
             Task { await AchievementNotifier.shared.post(fresh) }
         }
         return fresh
@@ -447,6 +563,21 @@ final class Achievements: ObservableObject {
 final class AchievementNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = AchievementNotifier()
 
+    /// The same chime the browser extension plays (its sounds/achievement.wav).
+    static let soundFile = "achievement.wav"
+
+    private lazy var chime: SystemSoundID? = {
+        guard let url = Bundle.main.url(forResource: Self.soundFile, withExtension: nil) else { return nil }
+        var id: SystemSoundID = 0
+        return AudioServicesCreateSystemSoundID(url as CFURL, &id) == kAudioServicesNoError ? id : nil
+    }()
+
+    /// Played with the app on screen, where the notification stays silent. A system
+    /// sound mixes over whatever is playing and respects the silent switch.
+    func playChime() {
+        if let chime { AudioServicesPlaySystemSound(chime) }
+    }
+
     /// Call once at launch: becomes the delegate and asks for permission (iOS only prompts the first time).
     func start() {
         let center = UNUserNotificationCenter.current()
@@ -460,7 +591,7 @@ final class AchievementNotifier: NSObject, UNUserNotificationCenterDelegate {
             let content = UNMutableNotificationContent()
             content.title = "Achievement unlocked: \(a.title)"
             content.body = a.text
-            content.sound = .default
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(AchievementNotifier.soundFile))
             content.threadIdentifier = "achievements"
             // Keyed by achievement, so a badge can never be announced twice.
             try? await center.add(UNNotificationRequest(identifier: "achievement-\(a.id)", content: content, trigger: nil))
